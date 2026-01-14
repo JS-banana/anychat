@@ -10,6 +10,7 @@
 ### 1.1 产品定义
 
 构建一个基于 **Tauri 2.0** 的多 AI Chat 聚合桌面应用，核心能力：
+
 - 统一管理多个 AI Chat 服务（MVP: ChatGPT + Gemini）
 - 自动捕获 + 手动导入双重备份机制
 - 本地 SQLite 存储，纯离线，无云同步
@@ -17,13 +18,13 @@
 
 ### 1.2 技术决策
 
-| 决策项 | 选择 |
-|--------|------|
-| 技术框架 | Tauri 2.0 |
-| 数据捕获策略 | 自动捕获 + 手动导入备份 |
-| 数据加密 | 不需要 |
-| MVP 范围 | ChatGPT + Gemini (2个服务) |
-| 云同步 | 不需要，纯本地存储 |
+| 决策项       | 选择                       |
+| ------------ | -------------------------- |
+| 技术框架     | Tauri 2.0                  |
+| 数据捕获策略 | 自动捕获 + 手动导入备份    |
+| 数据加密     | 不需要                     |
+| MVP 范围     | ChatGPT + Gemini (2个服务) |
+| 云同步       | 不需要，纯本地存储         |
 
 ### 1.3 技术栈
 
@@ -303,6 +304,7 @@ chat-box-app/
 **目标**: 创建项目并配置基础环境
 
 **任务**:
+
 - [ ] 1.1 创建 Tauri + React 项目
 - [ ] 1.2 配置 Tailwind CSS + 深色模式
 - [ ] 1.3 安装 shadcn/ui 组件
@@ -311,6 +313,7 @@ chat-box-app/
 - [ ] 1.6 配置 TypeScript 路径别名
 
 **命令**:
+
 ```bash
 # 创建项目
 pnpm create tauri-app@latest chat-box-app --template react-ts
@@ -335,6 +338,7 @@ cargo add tauri-plugin-dialog
 ```
 
 **验收标准**:
+
 - 项目可以成功启动 `pnpm tauri dev`
 - Tailwind 样式生效
 - shadcn/ui 组件可用
@@ -346,6 +350,7 @@ cargo add tauri-plugin-dialog
 **目标**: 实现主界面布局
 
 **任务**:
+
 - [ ] 2.1 实现 AppLayout 主布局
 - [ ] 2.2 实现 Sidebar 组件 (固定宽度 64px)
 - [ ] 2.3 实现 ProviderIcon 组件 (图标 + Tooltip)
@@ -355,6 +360,7 @@ cargo add tauri-plugin-dialog
 - [ ] 2.7 实现深色/浅色模式切换
 
 **验收标准**:
+
 - 左侧导航栏显示 ChatGPT/Gemini 图标
 - 点击图标有视觉反馈
 - 设置对话框可以打开
@@ -367,6 +373,7 @@ cargo add tauri-plugin-dialog
 **目标**: 实现多 WebView 管理和切换
 
 **任务**:
+
 - [ ] 3.1 实现 WebViewManager 服务
 - [ ] 3.2 实现 WebViewContainer 组件
 - [ ] 3.3 实现 show/hide 切换逻辑
@@ -376,6 +383,7 @@ cargo add tauri-plugin-dialog
 - [ ] 3.7 实现窗口大小变化时 WebView 自适应
 
 **验收标准**:
+
 - 可以加载 ChatGPT 页面
 - 可以加载 Gemini 页面
 - 切换时页面保持登录状态
@@ -388,6 +396,7 @@ cargo add tauri-plugin-dialog
 **目标**: 配置 SQLite 并初始化数据库
 
 **任务**:
+
 - [ ] 4.1 配置 tauri-plugin-sql
 - [ ] 4.2 创建数据库初始化脚本
 - [ ] 4.3 实现 DatabaseService
@@ -396,6 +405,7 @@ cargo add tauri-plugin-dialog
 - [ ] 4.6 实现 WAL 模式优化
 
 **验收标准**:
+
 - 数据库文件创建成功
 - 表结构正确
 - CRUD 操作正常
@@ -407,6 +417,7 @@ cargo add tauri-plugin-dialog
 **目标**: 实现聊天消息自动捕获
 
 **任务**:
+
 - [ ] 5.1 实现 ChatMonitor 类
 - [ ] 5.2 实现 MutationObserver 监听
 - [ ] 5.3 实现防抖机制 (300ms)
@@ -417,6 +428,7 @@ cargo add tauri-plugin-dialog
 - [ ] 5.8 实现捕获状态诊断面板
 
 **验收标准**:
+
 - 在 ChatGPT 中发消息后，数据库有记录
 - 在 Gemini 中发消息后，数据库有记录
 - 无重复消息
@@ -429,6 +441,7 @@ cargo add tauri-plugin-dialog
 **目标**: 实现备用的手动导入机制
 
 **任务**:
+
 - [ ] 6.1 实现 ChatGPT 官方导出 JSON 解析
 - [ ] 6.2 实现通用 JSON 导入
 - [ ] 6.3 实现导入进度显示
@@ -436,6 +449,7 @@ cargo add tauri-plugin-dialog
 - [ ] 6.5 实现导入结果反馈
 
 **验收标准**:
+
 - 可以导入 ChatGPT 官方导出文件
 - 导入进度正确显示
 - 重复消息被跳过
@@ -447,6 +461,7 @@ cargo add tauri-plugin-dialog
 **目标**: 实现聊天历史管理功能
 
 **任务**:
+
 - [ ] 7.1 实现 ChatHistoryPanel 组件
 - [ ] 7.2 实现会话列表 (分组显示)
 - [ ] 7.3 实现搜索功能 (FTS5)
@@ -456,6 +471,7 @@ cargo add tauri-plugin-dialog
 - [ ] 7.7 实现统计信息展示
 
 **验收标准**:
+
 - 可以查看所有会话
 - 搜索返回正确结果
 - 可以导出为 JSON/Markdown
@@ -468,6 +484,7 @@ cargo add tauri-plugin-dialog
 **目标**: 完善设置和备份功能
 
 **任务**:
+
 - [ ] 8.1 完善设置对话框各 Tab
 - [ ] 8.2 实现自动备份 (每小时)
 - [ ] 8.3 实现手动备份
@@ -476,6 +493,7 @@ cargo add tauri-plugin-dialog
 - [ ] 8.6 实现应用退出时备份
 
 **验收标准**:
+
 - 设置可以正常保存
 - 自动备份定时执行
 - 可以手动备份和恢复
@@ -488,6 +506,7 @@ cargo add tauri-plugin-dialog
 **目标**: 性能优化和最终测试
 
 **任务**:
+
 - [ ] 9.1 WebView 懒加载优化
 - [ ] 9.2 虚拟滚动优化
 - [ ] 9.3 SQLite WAL 模式
@@ -498,6 +517,7 @@ cargo add tauri-plugin-dialog
 - [ ] 9.8 编写 README
 
 **验收标准**:
+
 - 应用启动时间 < 3秒
 - 内存占用 < 200MB
 - 连续使用 1 小时无崩溃
@@ -525,33 +545,35 @@ cargo add tauri-plugin-dialog
 
 ### MVP 功能清单
 
-| 功能 | 优先级 | 状态 |
-|------|--------|------|
-| 左侧导航 + WebView 布局 | P0 | ⬜ |
-| ChatGPT/Gemini 切换 | P0 | ⬜ |
-| 自动数据捕获 (DOM) | P0 | ⬜ |
-| SQLite 本地存储 | P0 | ⬜ |
-| 手动导入 (ChatGPT 格式) | P0 | ⬜ |
-| 聊天历史查看 | P0 | ⬜ |
-| 全文搜索 | P1 | ⬜ |
-| 导出 (JSON/Markdown) | P1 | ⬜ |
-| 自动备份 | P1 | ⬜ |
-| 深色模式 | P1 | ⬜ |
-| 设置面板 | P1 | ⬜ |
-| 诊断工具 | P2 | ⬜ |
-| 系统托盘 | P2 | ⬜ |
-| 快捷键 | P2 | ⬜ |
+| 功能                    | 优先级 | 状态 |
+| ----------------------- | ------ | ---- |
+| 左侧导航 + WebView 布局 | P0     | ⬜   |
+| ChatGPT/Gemini 切换     | P0     | ⬜   |
+| 自动数据捕获 (DOM)      | P0     | ⬜   |
+| SQLite 本地存储         | P0     | ⬜   |
+| 手动导入 (ChatGPT 格式) | P0     | ⬜   |
+| 聊天历史查看            | P0     | ⬜   |
+| 全文搜索                | P1     | ⬜   |
+| 导出 (JSON/Markdown)    | P1     | ⬜   |
+| 自动备份                | P1     | ⬜   |
+| 深色模式                | P1     | ⬜   |
+| 设置面板                | P1     | ⬜   |
+| 诊断工具                | P2     | ⬜   |
+| 系统托盘                | P2     | ⬜   |
+| 快捷键                  | P2     | ⬜   |
 
 ---
 
 ## 八、参考资源
 
 ### 官方文档
+
 - [Tauri 官方文档](https://tauri.app/)
 - [shadcn/ui 组件库](https://ui.shadcn.com/)
 - [Tauri SQL Plugin](https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/sql)
 
 ### 参考项目
+
 - [tauri-ui 模板](https://github.com/agmmnn/tauri-ui)
 - [OpenChat](https://github.com/team-forge-ai/openchat)
 - [ChatBox](https://github.com/chatboxai/chatbox)
