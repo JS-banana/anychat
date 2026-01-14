@@ -95,7 +95,7 @@ export function AddServiceDialog() {
     resetAndClose();
   };
 
-  const handlePresetSelect = (preset: typeof PRESET_SERVICES[0]) => {
+  const handlePresetSelect = (preset: (typeof PRESET_SERVICES)[0]) => {
     if (existingUrls.includes(preset.url.toLowerCase())) {
       return;
     }
@@ -126,9 +126,7 @@ export function AddServiceDialog() {
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add Chat Service</DialogTitle>
-          <DialogDescription>
-            Add a new AI chat service to your dashboard.
-          </DialogDescription>
+          <DialogDescription>Add a new AI chat service to your dashboard.</DialogDescription>
         </DialogHeader>
 
         <div className="flex gap-2 border-b pb-3">
@@ -173,9 +171,7 @@ export function AddServiceDialog() {
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-medium">{preset.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {preset.url}
-                    </p>
+                    <p className="truncate text-xs text-muted-foreground">{preset.url}</p>
                   </div>
                 </button>
               ))
@@ -209,10 +205,7 @@ export function AddServiceDialog() {
             </div>
             <div className="space-y-2">
               <label htmlFor="iconUrl" className="text-sm font-medium">
-                Icon URL{' '}
-                <span className="font-normal text-muted-foreground">
-                  (auto-detected)
-                </span>
+                Icon URL <span className="font-normal text-muted-foreground">(auto-detected)</span>
               </label>
               <Input
                 id="iconUrl"
@@ -221,9 +214,7 @@ export function AddServiceDialog() {
                 onChange={(e) => setIconUrl(e.target.value)}
               />
               {autoIconUrl && !iconUrl && (
-                <p className="text-xs text-muted-foreground">
-                  Will use: {autoIconUrl}
-                </p>
+                <p className="text-xs text-muted-foreground">Will use: {autoIconUrl}</p>
               )}
             </div>
             <DialogFooter>

@@ -8,9 +8,7 @@ export function useKeyboardShortcuts() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
 
-      const enabledServices = services
-        .filter((s) => s.enabled)
-        .sort((a, b) => a.order - b.order);
+      const enabledServices = services.filter((s) => s.enabled).sort((a, b) => a.order - b.order);
 
       const num = parseInt(e.key);
       if (num >= 1 && num <= 9) {

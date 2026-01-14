@@ -4,12 +4,7 @@ import { Settings, Plus, MessageSquare, History } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '@/stores/app-store';
 import { Button } from '@/components/ui/button';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { getServiceIconCandidates } from '@/lib/icon';
 
@@ -22,16 +17,14 @@ export function Sidebar() {
     setAddServiceDialogOpen,
     setChatHistoryOpen,
   } = useAppStore();
-  
+
   const [iconErrorIndex, setIconErrorIndex] = useState<Record<string, number>>({});
 
   useEffect(() => {
     setIconErrorIndex({});
   }, [services]);
 
-  const enabledServices = services
-    .filter((s) => s.enabled)
-    .sort((a, b) => a.order - b.order);
+  const enabledServices = services.filter((s) => s.enabled).sort((a, b) => a.order - b.order);
 
   const handleImageError = (serviceId: string) => {
     setIconErrorIndex((prev) => ({
@@ -44,56 +37,64 @@ export function Sidebar() {
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full w-16 flex-col items-center border-r border-sidebar-border bg-sidebar py-3">
         <div className="flex flex-1 flex-col items-center gap-2">
-          {enabledServices.map((service) => (
-            <Tooltip key={service.id}>
-              <TooltipTrigger asChild>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={async () => {
-                    setActiveService(service.id);
-                    await invoke('switch_webview', { label: service.id, url: service.url });
-                  }}
-                  className={cn(
-                    'relative flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200',
-                    activeServiceId === service.id
-                      ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-md'
-                      : 'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent/80'
-                  )}
-                >
-                  {activeServiceId === service.id && (
-                    <motion.div
-                      layoutId="activeIndicator"
-                      className="absolute -left-3 h-8 w-1 rounded-r-full bg-sidebar-primary"
-                      initial={false}
-                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                    />
-                  )}
-                  {(() => {
-                    const candidates = getServiceIconCandidates(service.url, service.iconUrl);
-                    const errorIndex = iconErrorIndex[service.id] ?? 0;
-                    const iconUrl = candidates[errorIndex];
+          {enabledServices.map((service) => {
+            const isActive = activeServiceId === service.id;
 
-                    if (!iconUrl) {
-                      return <MessageSquare className="h-5 w-5" />;
-                    }
-
-                    return (
-                      <img
-                        src={iconUrl}
-                        alt={service.name}
-                        className="h-6 w-6 object-contain"
-                        onError={() => handleImageError(service.id)}
+            return (
+              <Tooltip key={service.id}>
+                <TooltipTrigger asChild>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={async () => {
+                      setActiveService(service.id);
+                      await invoke('switch_webview', { label: service.id, url: service.url });
+                    }}
+                    className={cn(
+                      'relative flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200',
+                      isActive
+                        ? 'bg-black/[0.06] ring-1 ring-black/10'
+                        : 'hover:bg-black/[0.04]'
+                    )}
+                    aria-pressed={isActive}
+                    aria-label={service.name}
+                  >
+                    {isActive && (
+                      <motion.div
+                        layoutId="activeIndicator"
+                        className="absolute -left-[6px] h-6 w-1 rounded-full bg-blue-500"
+                        initial={false}
+                        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                       />
-                    );
-                  })()}
-                </motion.button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>{service.name}</p>
-              </TooltipContent>
-            </Tooltip>
-          ))}
+                    )}
+                    {(() => {
+                      const candidates = getServiceIconCandidates(service.url, service.iconUrl);
+                      const errorIndex = iconErrorIndex[service.id] ?? 0;
+                      const iconUrl = candidates[errorIndex];
+
+                      if (!iconUrl) {
+                        return <MessageSquare className="h-5 w-5" />;
+                      }
+
+                      return (
+                        <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-lg">
+                          <img
+                            src={iconUrl}
+                            alt={service.name}
+                            className="h-6 w-6 object-contain"
+                            onError={() => handleImageError(service.id)}
+                          />
+                        </div>
+                      );
+                    })()}
+                  </motion.button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>{service.name}</p>
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -107,7 +108,7 @@ export function Sidebar() {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>Add Chat Service</p>
+              <p>Add Service</p>
             </TooltipContent>
           </Tooltip>
         </div>

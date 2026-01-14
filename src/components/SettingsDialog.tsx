@@ -43,14 +43,9 @@ function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceIte
   useEffect(() => {
     setIconErrorIndex(0);
   }, [service.url, service.iconUrl]);
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: service.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: service.id,
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -63,9 +58,7 @@ function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceIte
       style={style}
       className={cn(
         'flex items-center gap-3 rounded-lg border p-3 transition-colors',
-        service.enabled
-          ? 'border-border bg-card'
-          : 'border-border/50 bg-muted/30 opacity-60',
+        service.enabled ? 'border-border bg-card' : 'border-border/50 bg-muted/30 opacity-60',
         isDragging && 'opacity-50 shadow-lg'
       )}
     >
@@ -82,9 +75,7 @@ function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceIte
 
           if (!iconUrl) {
             return (
-              <span className="text-xs font-medium">
-                {service.name.charAt(0).toUpperCase()}
-              </span>
+              <span className="text-xs font-medium">{service.name.charAt(0).toUpperCase()}</span>
             );
           }
 
@@ -101,22 +92,11 @@ function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceIte
 
       <div className="flex-1">
         <p className="text-sm font-medium">{service.name}</p>
-        <p className="truncate text-xs text-muted-foreground">
-          {service.url}
-        </p>
+        <p className="truncate text-xs text-muted-foreground">{service.url}</p>
       </div>
 
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8"
-        onClick={onToggle}
-      >
-        {service.enabled ? (
-          <Eye className="h-4 w-4" />
-        ) : (
-          <EyeOff className="h-4 w-4" />
-        )}
+      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggle}>
+        {service.enabled ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
       </Button>
 
       {service.id.startsWith('custom-') && (
@@ -170,7 +150,9 @@ export function SettingsDialog() {
     try {
       const result = await importChatGPTExport();
       if (result.success) {
-        alert(`Imported ${result.sessionsImported} sessions and ${result.messagesImported} messages`);
+        alert(
+          `Imported ${result.sessionsImported} sessions and ${result.messagesImported} messages`
+        );
         loadStats();
       } else if (result.errors.length > 0) {
         alert(`Import errors: ${result.errors.join('\n')}`);
@@ -210,10 +192,13 @@ export function SettingsDialog() {
   };
 
   return (
-    <Dialog open={settingsOpen} onOpenChange={(open) => {
-      setSettingsOpen(open);
-      if (open) loadStats();
-    }}>
+    <Dialog
+      open={settingsOpen}
+      onOpenChange={(open) => {
+        setSettingsOpen(open);
+        if (open) loadStats();
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
@@ -259,12 +244,7 @@ export function SettingsDialog() {
               </p>
             )}
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleImport}
-                disabled={importing}
-              >
+              <Button variant="outline" size="sm" onClick={handleImport} disabled={importing}>
                 {importing ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -272,12 +252,7 @@ export function SettingsDialog() {
                 )}
                 Import ChatGPT
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExport}
-                disabled={exporting}
-              >
+              <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
                 {exporting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (

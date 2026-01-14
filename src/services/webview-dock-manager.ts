@@ -18,7 +18,7 @@ export class WebviewDockManager {
     }
 
     const label = `svc_${service.id}`;
-    
+
     const existing = await WebviewWindow.getByLabel(label);
     if (existing) {
       this.windows.set(service.id, existing);
@@ -56,7 +56,7 @@ export class WebviewDockManager {
     const scale = await main.scaleFactor();
 
     const titleBarHeight = (outerSize.height - innerSize.height) / scale;
-    
+
     const logicalX = outerPos.x / scale + this.sidebarWidth;
     const logicalY = outerPos.y / scale + titleBarHeight;
     const logicalW = Math.max(0, innerSize.width / scale - this.sidebarWidth);

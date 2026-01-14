@@ -25,10 +25,13 @@ interface ChatGPTExportConversation {
   title: string;
   create_time: number;
   update_time: number;
-  mapping: Record<string, {
-    message?: ChatGPTExportMessage;
-    children: string[];
-  }>;
+  mapping: Record<
+    string,
+    {
+      message?: ChatGPTExportMessage;
+      children: string[];
+    }
+  >;
 }
 
 export async function importChatGPTExport(): Promise<ImportResult> {
@@ -42,10 +45,12 @@ export async function importChatGPTExport(): Promise<ImportResult> {
   try {
     const selected = await open({
       multiple: false,
-      filters: [{
-        name: 'JSON',
-        extensions: ['json'],
-      }],
+      filters: [
+        {
+          name: 'JSON',
+          extensions: ['json'],
+        },
+      ],
     });
 
     if (!selected) {
@@ -67,15 +72,10 @@ export async function importChatGPTExport(): Promise<ImportResult> {
         result.sessionsImported++;
 
         const messages = extractMessagesFromMapping(conversation.mapping);
-        
+
         for (const msg of messages) {
           if (msg.content && msg.content.trim()) {
-            await createMessage(
-              sessionId,
-              msg.role,
-              msg.content,
-              'manual_import'
-            );
+            await createMessage(sessionId, msg.role, msg.content, 'manual_import');
             result.messagesImported++;
           }
         }
@@ -95,7 +95,8 @@ export async function importChatGPTExport(): Promise<ImportResult> {
 function extractMessagesFromMapping(
   mapping: ChatGPTExportConversation['mapping']
 ): { role: 'user' | 'assistant' | 'system'; content: string; timestamp: number }[] {
-  const messages: { role: 'user' | 'assistant' | 'system'; content: string; timestamp: number }[] = [];
+  const messages: { role: 'user' | 'assistant' | 'system'; content: string; timestamp: number }[] =
+    [];
   const visited = new Set<string>();
 
   function traverse(nodeId: string) {
@@ -144,10 +145,12 @@ export async function importGenericJSON(): Promise<ImportResult> {
   try {
     const selected = await open({
       multiple: false,
-      filters: [{
-        name: 'JSON',
-        extensions: ['json'],
-      }],
+      filters: [
+        {
+          name: 'JSON',
+          extensions: ['json'],
+        },
+      ],
     });
 
     if (!selected) {
@@ -185,7 +188,7 @@ export async function importGenericJSON(): Promise<ImportResult> {
 
 export async function exportAllData(): Promise<string> {
   const db = await getDatabase();
-  
+
   const sessions = await db.select('SELECT * FROM chat_sessions ORDER BY updated_at DESC');
   const messages = await db.select('SELECT * FROM chat_messages ORDER BY created_at');
   const providers = await db.select('SELECT * FROM providers');

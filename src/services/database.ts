@@ -85,10 +85,10 @@ export async function initDatabase(): Promise<Database> {
   if (db) return db;
 
   db = await Database.load('sqlite:chatbox.db');
-  
+
   await db.execute(INIT_SQL);
   await db.execute(DEFAULT_PROVIDERS_SQL);
-  
+
   return db;
 }
 
@@ -112,9 +112,7 @@ export async function getSessions(providerId?: string): Promise<ChatSession[]> {
       [providerId]
     );
   }
-  return database.select<ChatSession[]>(
-    'SELECT * FROM chat_sessions ORDER BY updated_at DESC'
-  );
+  return database.select<ChatSession[]>('SELECT * FROM chat_sessions ORDER BY updated_at DESC');
 }
 
 export async function getMessages(sessionId: string): Promise<ChatMessage[]> {
@@ -125,18 +123,16 @@ export async function getMessages(sessionId: string): Promise<ChatMessage[]> {
   );
 }
 
-export async function createSession(
-  providerId: string,
-  title: string
-): Promise<string> {
+export async function createSession(providerId: string, title: string): Promise<string> {
   const database = await getDatabase();
   const id = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  
-  await database.execute(
-    'INSERT INTO chat_sessions (id, provider_id, title) VALUES (?, ?, ?)',
-    [id, providerId, title]
-  );
-  
+
+  await database.execute('INSERT INTO chat_sessions (id, provider_id, title) VALUES (?, ?, ?)', [
+    id,
+    providerId,
+    title,
+  ]);
+
   return id;
 }
 
@@ -149,26 +145,26 @@ export async function createMessage(
   const database = await getDatabase();
   const id = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   const contentHash = await hashContent(content);
-  
+
   const existing = await database.select<{ id: string }[]>(
     'SELECT id FROM chat_messages WHERE session_id = ? AND content_hash = ?',
     [sessionId, contentHash]
   );
-  
+
   if (existing.length > 0) {
     return existing[0].id;
   }
-  
+
   await database.execute(
     'INSERT INTO chat_messages (id, session_id, role, content, content_hash, source) VALUES (?, ?, ?, ?, ?, ?)',
     [id, sessionId, role, content, contentHash, source]
   );
-  
+
   await database.execute(
     'UPDATE chat_sessions SET message_count = message_count + 1, updated_at = strftime("%s", "now") WHERE id = ?',
     [sessionId]
   );
-  
+
   return id;
 }
 
@@ -191,7 +187,7 @@ export async function getStatistics(): Promise<{
   byProvider: { provider_id: string; count: number }[];
 }> {
   const database = await getDatabase();
-  
+
   const [sessions] = await database.select<{ count: number }[]>(
     'SELECT COUNT(*) as count FROM chat_sessions'
   );
@@ -201,7 +197,7 @@ export async function getStatistics(): Promise<{
   const byProvider = await database.select<{ provider_id: string; count: number }[]>(
     'SELECT provider_id, COUNT(*) as count FROM chat_sessions GROUP BY provider_id'
   );
-  
+
   return {
     totalSessions: sessions?.count ?? 0,
     totalMessages: messages?.count ?? 0,

@@ -1,29 +1,16 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Search, 
-  MessageSquare, 
-  Calendar, 
-  Trash2, 
-  Download,
-  ChevronRight,
-  X 
-} from 'lucide-react';
+import { Search, MessageSquare, Calendar, Trash2, Download, ChevronRight, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { 
-  getSessions, 
-  getMessages, 
+  getSessions,
+  getMessages,
   deleteSession,
   searchMessages,
   type ChatSession,
-  type ChatMessage 
+  type ChatMessage,
 } from '@/services/database';
 import { cn } from '@/lib/utils';
 
@@ -168,9 +155,7 @@ export function ChatHistoryPanel({ open, onOpenChange }: ChatHistoryPanelProps) 
 
             <div className="flex-1 overflow-y-auto">
               {loading ? (
-                <div className="p-4 text-center text-muted-foreground">
-                  Loading...
-                </div>
+                <div className="p-4 text-center text-muted-foreground">Loading...</div>
               ) : isSearching ? (
                 <div className="p-2">
                   <p className="text-xs text-muted-foreground px-2 py-1">
@@ -189,9 +174,7 @@ export function ChatHistoryPanel({ open, onOpenChange }: ChatHistoryPanelProps) 
                   ))}
                 </div>
               ) : sessions.length === 0 ? (
-                <div className="p-4 text-center text-muted-foreground">
-                  No chat history yet
-                </div>
+                <div className="p-4 text-center text-muted-foreground">No chat history yet</div>
               ) : (
                 sessions.map((session) => (
                   <motion.div
@@ -200,9 +183,7 @@ export function ChatHistoryPanel({ open, onOpenChange }: ChatHistoryPanelProps) 
                     animate={{ opacity: 1 }}
                     className={cn(
                       'p-3 cursor-pointer border-b transition-colors',
-                      selectedSession?.id === session.id
-                        ? 'bg-muted'
-                        : 'hover:bg-muted/50'
+                      selectedSession?.id === session.id ? 'bg-muted' : 'hover:bg-muted/50'
                     )}
                     onClick={() => setSelectedSession(session)}
                   >

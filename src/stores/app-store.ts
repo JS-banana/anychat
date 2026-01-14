@@ -8,7 +8,7 @@ interface AppState {
   settingsOpen: boolean;
   addServiceDialogOpen: boolean;
   chatHistoryOpen: boolean;
-  
+
   setActiveService: (id: string) => void;
   addService: (service: Omit<ChatService, 'id' | 'order'>) => void;
   removeService: (id: string) => void;
@@ -24,13 +24,13 @@ export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       services: DEFAULT_SERVICES,
-      activeServiceId: DEFAULT_SERVICES.find(s => s.enabled)?.id ?? null,
+      activeServiceId: DEFAULT_SERVICES.find((s) => s.enabled)?.id ?? null,
       settingsOpen: false,
       addServiceDialogOpen: false,
       chatHistoryOpen: false,
 
       setActiveService: (id) => {
-        const service = get().services.find(s => s.id === id);
+        const service = get().services.find((s) => s.id === id);
         if (service?.enabled) {
           set({ activeServiceId: id });
         }
@@ -39,7 +39,7 @@ export const useAppStore = create<AppState>()(
       addService: (serviceData) => {
         const services = get().services;
         const id = `custom-${Date.now()}`;
-        const order = Math.max(...services.map(s => s.order), -1) + 1;
+        const order = Math.max(...services.map((s) => s.order), -1) + 1;
         const newService: ChatService = {
           ...serviceData,
           id,
@@ -50,36 +50,33 @@ export const useAppStore = create<AppState>()(
       },
 
       removeService: (id) => {
-        const services = get().services.filter(s => s.id !== id);
+        const services = get().services.filter((s) => s.id !== id);
         const activeId = get().activeServiceId;
         set({
           services,
-          activeServiceId: activeId === id 
-            ? services.find(s => s.enabled)?.id ?? null 
-            : activeId,
+          activeServiceId:
+            activeId === id ? (services.find((s) => s.enabled)?.id ?? null) : activeId,
         });
       },
 
       updateService: (id, updates) => {
         set({
-          services: get().services.map(s =>
-            s.id === id ? { ...s, ...updates } : s
-          ),
+          services: get().services.map((s) => (s.id === id ? { ...s, ...updates } : s)),
         });
       },
 
       toggleServiceEnabled: (id) => {
-        const services = get().services.map(s =>
+        const services = get().services.map((s) =>
           s.id === id ? { ...s, enabled: !s.enabled } : s
         );
         const activeId = get().activeServiceId;
-        const targetService = services.find(s => s.id === id);
-        
+        const targetService = services.find((s) => s.id === id);
+
         let newActiveId = activeId;
         if (activeId === id && !targetService?.enabled) {
-          newActiveId = services.find(s => s.enabled)?.id ?? null;
+          newActiveId = services.find((s) => s.enabled)?.id ?? null;
         }
-        
+
         set({ services, activeServiceId: newActiveId });
       },
 

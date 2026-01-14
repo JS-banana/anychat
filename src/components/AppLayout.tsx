@@ -24,19 +24,19 @@ interface ChatCaptureEvent {
 
 export function AppLayout() {
   const [dbReady, setDbReady] = useState(false);
-  const { 
-    chatHistoryOpen, 
+  const {
+    chatHistoryOpen,
     setChatHistoryOpen,
     activeServiceId,
     settingsOpen,
     addServiceDialogOpen,
     services,
   } = useAppStore();
-  
+
   const isAnyDialogOpen = settingsOpen || addServiceDialogOpen || chatHistoryOpen;
-  const activeService = services.find(s => s.id === activeServiceId);
+  const activeService = services.find((s) => s.id === activeServiceId);
   const sessionCacheRef = useRef<Record<string, string>>({});
-  
+
   useKeyboardShortcuts();
 
   useEffect(() => {
@@ -47,12 +47,12 @@ export function AppLayout() {
 
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
-    
+
     const setupListener = async () => {
       unlisten = await listen<ChatCaptureEvent>('chat-captured', async (event) => {
         const { service_id, messages } = event.payload;
         console.log('[ChatBox] Received captured messages:', service_id, messages.length);
-        
+
         try {
           let sessionId = sessionCacheRef.current[service_id];
           if (!sessionId) {
@@ -60,7 +60,7 @@ export function AppLayout() {
             sessionId = await createSession(service_id, title);
             sessionCacheRef.current[service_id] = sessionId;
           }
-          
+
           for (const msg of messages) {
             await createMessage(sessionId, msg.role, msg.content, 'auto_capture');
           }
@@ -70,11 +70,11 @@ export function AppLayout() {
         }
       });
     };
-    
+
     if (dbReady) {
       setupListener();
     }
-    
+
     return () => {
       if (unlisten) unlisten();
     };
@@ -82,7 +82,9 @@ export function AppLayout() {
 
   useEffect(() => {
     if (activeServiceId && activeService) {
-      invoke('switch_webview', { label: activeServiceId, url: activeService.url }).catch(console.error);
+      invoke('switch_webview', { label: activeServiceId, url: activeService.url }).catch(
+        console.error
+      );
     }
   }, []);
 
@@ -90,7 +92,9 @@ export function AppLayout() {
     if (isAnyDialogOpen) {
       invoke('hide_all_webviews').catch(console.error);
     } else if (activeServiceId && activeService) {
-      invoke('switch_webview', { label: activeServiceId, url: activeService.url }).catch(console.error);
+      invoke('switch_webview', { label: activeServiceId, url: activeService.url }).catch(
+        console.error
+      );
     }
   }, [isAnyDialogOpen, activeServiceId, activeService?.url]);
 
