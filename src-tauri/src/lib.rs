@@ -326,11 +326,10 @@ fn create_webview_for_service(
     label: &str,
     url: &str,
     state: &AppState,
-    webview_window: &tauri::WebviewWindow,
+    // Use Window here because the main window hosts multiple webviews (add_child).
+    window: &tauri::Window,
 ) -> Result<(), String> {
     println!("[ChatBox] create_webview_for_service: creating {} -> {}", label, url);
-    
-    let window = webview_window.as_ref().window();
 
     let win_size = window.inner_size().map_err(|e| e.to_string())?;
     let scale = window.scale_factor().unwrap_or(1.0);
@@ -407,7 +406,8 @@ fn create_webview_for_service(
 
 #[tauri::command]
 fn switch_webview(
-    parent: tauri::WebviewWindow,
+    // Use Window instead of WebviewWindow to avoid IPC failure in multi-webview windows.
+    parent: tauri::Window,
     app: tauri::AppHandle,
     label: String,
     url: String,

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Settings, Plus, MessageSquare, History } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
@@ -11,6 +11,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { getServiceIconCandidates } from '@/lib/icon';
 
 export function Sidebar() {
   const {
@@ -22,14 +23,21 @@ export function Sidebar() {
     setChatHistoryOpen,
   } = useAppStore();
   
-  const [imgErrors, setImgErrors] = useState<Record<string, boolean>>({});
+  const [iconErrorIndex, setIconErrorIndex] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    setIconErrorIndex({});
+  }, [services]);
 
   const enabledServices = services
     .filter((s) => s.enabled)
     .sort((a, b) => a.order - b.order);
 
   const handleImageError = (serviceId: string) => {
-    setImgErrors((prev) => ({ ...prev, [serviceId]: true }));
+    setIconErrorIndex((prev) => ({
+      ...prev,
+      [serviceId]: (prev[serviceId] ?? 0) + 1,
+    }));
   };
 
   return (
@@ -61,16 +69,24 @@ export function Sidebar() {
                       transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                     />
                   )}
-                  {service.iconUrl && !imgErrors[service.id] ? (
-                    <img
-                      src={service.iconUrl}
-                      alt={service.name}
-                      className="h-6 w-6 object-contain"
-                      onError={() => handleImageError(service.id)}
-                    />
-                  ) : (
-                    <MessageSquare className="h-5 w-5" />
-                  )}
+                  {(() => {
+                    const candidates = getServiceIconCandidates(service.url, service.iconUrl);
+                    const errorIndex = iconErrorIndex[service.id] ?? 0;
+                    const iconUrl = candidates[errorIndex];
+
+                    if (!iconUrl) {
+                      return <MessageSquare className="h-5 w-5" />;
+                    }
+
+                    return (
+                      <img
+                        src={iconUrl}
+                        alt={service.name}
+                        className="h-6 w-6 object-contain"
+                        onError={() => handleImageError(service.id)}
+                      />
+                    );
+                  })()}
                 </motion.button>
               </TooltipTrigger>
               <TooltipContent side="right">

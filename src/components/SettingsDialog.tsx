@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/dialog';
 import { Trash2, Eye, EyeOff, GripVertical, Upload, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getServiceIconCandidates } from '@/lib/icon';
 import { importChatGPTExport, exportAllData } from '@/services/import-export';
 import { getStatistics } from '@/services/database';
 import { ChatService } from '@/types';
@@ -37,6 +38,11 @@ interface SortableServiceItemProps {
 }
 
 function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceItemProps) {
+  const [iconErrorIndex, setIconErrorIndex] = useState(0);
+
+  useEffect(() => {
+    setIconErrorIndex(0);
+  }, [service.url, service.iconUrl]);
   const {
     attributes,
     listeners,
@@ -70,20 +76,27 @@ function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceIte
       />
 
       <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-        {service.iconUrl ? (
-          <img
-            src={service.iconUrl}
-            alt={service.name}
-            className="h-5 w-5 object-contain"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
-          />
-        ) : (
-          <span className="text-xs font-medium">
-            {service.name.charAt(0).toUpperCase()}
-          </span>
-        )}
+        {(() => {
+          const candidates = getServiceIconCandidates(service.url, service.iconUrl);
+          const iconUrl = candidates[iconErrorIndex];
+
+          if (!iconUrl) {
+            return (
+              <span className="text-xs font-medium">
+                {service.name.charAt(0).toUpperCase()}
+              </span>
+            );
+          }
+
+          return (
+            <img
+              src={iconUrl}
+              alt={service.name}
+              className="h-5 w-5 object-contain"
+              onError={() => setIconErrorIndex((prev) => prev + 1)}
+            />
+          );
+        })()}
       </div>
 
       <div className="flex-1">
