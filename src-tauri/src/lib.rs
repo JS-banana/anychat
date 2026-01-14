@@ -21,11 +21,11 @@ const AUTH_SCRIPT: &str = r#"
     if (navigator.credentials) {
         const disabledCredentials = {
             create: function() { 
-                console.log('[ChatBox] WebAuthn create blocked - use password login');
+                console.log('[AnyChat] WebAuthn create blocked - use password login');
                 return Promise.reject(new DOMException('NotSupportedError', 'NotSupportedError'));
             },
             get: function() { 
-                console.log('[ChatBox] WebAuthn get blocked - use password login');
+                console.log('[AnyChat] WebAuthn get blocked - use password login');
                 return Promise.reject(new DOMException('NotSupportedError', 'NotSupportedError'));
             },
             store: function() { 
@@ -41,9 +41,9 @@ const AUTH_SCRIPT: &str = r#"
                 get: function() { return disabledCredentials; },
                 configurable: true
             });
-            console.log('[ChatBox] WebAuthn/Passkeys disabled');
+            console.log('[AnyChat] WebAuthn/Passkeys disabled');
         } catch (e) {
-            console.log('[ChatBox] Could not disable WebAuthn:', e);
+            console.log('[AnyChat] Could not disable WebAuthn:', e);
         }
     }
     
@@ -53,7 +53,7 @@ const AUTH_SCRIPT: &str = r#"
                 get: function() { return undefined; },
                 configurable: true
             });
-            console.log('[ChatBox] PublicKeyCredential disabled');
+            console.log('[AnyChat] PublicKeyCredential disabled');
         } catch (e) {}
     }
 
@@ -98,7 +98,7 @@ const AUTH_SCRIPT: &str = r#"
     const originalWindowOpen = window.open;
     window.open = function(url, name, specs) {
         if (window.__isAuthPopup(url, name)) {
-            console.log('[ChatBox] Allowing OAuth popup:', url);
+            console.log('[AnyChat] Allowing OAuth popup:', url);
             return originalWindowOpen.call(window, url, name, specs);
         }
         return originalWindowOpen.call(window, url, name, specs);
@@ -201,7 +201,7 @@ const AUTH_SCRIPT: &str = r#"
         });
         
         if (messages.length > 0) {
-            console.log('[ChatBox] Captured', messages.length, 'new messages');
+            console.log('[AnyChat] Captured', messages.length, 'new messages');
             // Store in window for polling
             window.__chatBoxPendingMessages = window.__chatBoxPendingMessages || [];
             window.__chatBoxPendingMessages.push(...messages.map(m => ({
@@ -215,7 +215,7 @@ const AUTH_SCRIPT: &str = r#"
                     serviceId: window.location.hostname,
                     messages: messages
                 }).catch(err => {
-                    console.log('[ChatBox] IPC failed (expected in child webview):', err);
+                    console.log('[AnyChat] IPC failed (expected in child webview):', err);
                 });
             }
         }
@@ -224,11 +224,11 @@ const AUTH_SCRIPT: &str = r#"
     function setupChatObserver() {
         const config = getHostConfig();
         if (!config) {
-            console.log('[ChatBox] No chat config for this site');
+            console.log('[AnyChat] No chat config for this site');
             return;
         }
         
-        console.log('[ChatBox] Setting up chat observer for', window.location.hostname);
+        console.log('[AnyChat] Setting up chat observer for', window.location.hostname);
         
         const observer = new MutationObserver((mutations) => {
             let shouldCapture = false;
@@ -251,7 +251,7 @@ const AUTH_SCRIPT: &str = r#"
         
         setTimeout(captureMessages, 2000);
         
-        console.log('[ChatBox] Chat observer started');
+        console.log('[AnyChat] Chat observer started');
     }
     
     if (document.readyState === 'loading') {
@@ -272,19 +272,19 @@ const AUTH_SCRIPT: &str = r#"
         
         if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.ipc) {
             window.__TAURI_INTERNALS__.ipc.postMessage(payload);
-            console.log('[ChatBox] Sent', messages.length, 'messages via IPC');
+            console.log('[AnyChat] Sent', messages.length, 'messages via IPC');
         } else if (window.ipc && window.ipc.postMessage) {
             window.ipc.postMessage(payload);
-            console.log('[ChatBox] Sent', messages.length, 'messages via ipc.postMessage');
+            console.log('[AnyChat] Sent', messages.length, 'messages via ipc.postMessage');
         } else {
             window.__chatBoxPendingMessages.push(...messages);
-            console.log('[ChatBox] No IPC available, messages re-queued');
+            console.log('[AnyChat] No IPC available, messages re-queued');
         }
     }
     
     setInterval(flushPendingMessages, 3000);
     
-    console.log('[ChatBox] Auth script initialized');
+    console.log('[AnyChat] Auth script initialized');
 })();
 "#;
 
@@ -329,7 +329,7 @@ fn create_webview_for_service(
     // Use Window here because the main window hosts multiple webviews (add_child).
     window: &tauri::Window,
 ) -> Result<(), String> {
-    println!("[ChatBox] create_webview_for_service: creating {} -> {}", label, url);
+    println!("[AnyChat] create_webview_for_service: creating {} -> {}", label, url);
 
     let win_size = window.inner_size().map_err(|e| e.to_string())?;
     let scale = window.scale_factor().unwrap_or(1.0);
@@ -346,17 +346,17 @@ fn create_webview_for_service(
             let url_str = url.as_str();
             if is_auth_url(url_str) {
                 #[cfg(debug_assertions)]
-                println!("[ChatBox] Allowing OAuth navigation to: {}", url_str);
+                println!("[AnyChat] Allowing OAuth navigation to: {}", url_str);
             }
             true
         })
         .on_new_window(move |url, _features| {
             #[cfg(debug_assertions)]
-            println!("[ChatBox] New window requested: {}", url);
+            println!("[AnyChat] New window requested: {}", url);
 
             if is_auth_url(url.as_str()) {
                 #[cfg(debug_assertions)]
-                println!("[ChatBox] Creating OAuth popup window");
+                println!("[AnyChat] Creating OAuth popup window");
 
                 let popup_label = format!(
                     "oauth-{}",
@@ -383,7 +383,7 @@ fn create_webview_for_service(
         })
         .auto_resize();
 
-    println!("[ChatBox] create_webview_for_service: calling add_child");
+    println!("[AnyChat] create_webview_for_service: calling add_child");
 
     window
         .add_child(
@@ -392,14 +392,14 @@ fn create_webview_for_service(
             LogicalSize::new(content_width, content_height),
         )
         .map_err(|e| {
-            println!("[ChatBox] add_child failed: {}", e);
+            println!("[AnyChat] add_child failed: {}", e);
             e.to_string()
         })?;
 
     let mut created = state.created_webviews.lock().unwrap();
     created.insert(label.to_string());
 
-    println!("[ChatBox] Created webview: {} -> {}", label, url);
+    println!("[AnyChat] Created webview: {} -> {}", label, url);
 
     Ok(())
 }
@@ -412,14 +412,14 @@ fn switch_webview(
     label: String,
     url: String,
 ) -> Result<(), String> {
-    println!("[ChatBox] switch_webview called: label={}, url={}, parent={}", label, url, parent.label());
+    println!("[AnyChat] switch_webview called: label={}, url={}, parent={}", label, url, parent.label());
     
     let state = app.state::<AppState>();
     
     {
         let setup_complete = state.setup_complete.lock().unwrap();
         if !*setup_complete {
-            println!("[ChatBox] Setup not complete yet, skipping switch_webview");
+            println!("[AnyChat] Setup not complete yet, skipping switch_webview");
             return Ok(());
         }
     }
@@ -434,24 +434,24 @@ fn switch_webview(
     }
 
     if app.get_webview(&label).is_none() {
-        println!("[ChatBox] Webview {} not found, creating...", label);
+        println!("[AnyChat] Webview {} not found, creating...", label);
         match create_webview_for_service(&app, &label, &url, &state, &parent) {
-            Ok(_) => println!("[ChatBox] Successfully created webview: {}", label),
+            Ok(_) => println!("[AnyChat] Successfully created webview: {}", label),
             Err(e) => {
-                println!("[ChatBox] ERROR creating webview {}: {}", label, e);
+                println!("[AnyChat] ERROR creating webview {}: {}", label, e);
                 return Err(e);
             }
         }
     } else {
-        println!("[ChatBox] Webview {} already exists", label);
+        println!("[AnyChat] Webview {} already exists", label);
     }
 
     if let Some(webview) = app.get_webview(&label) {
         let _ = webview.show();
         let _ = webview.set_focus();
-        println!("[ChatBox] Showing webview: {}", label);
+        println!("[AnyChat] Showing webview: {}", label);
     } else {
-        println!("[ChatBox] ERROR: Failed to get webview after creation: {}", label);
+        println!("[AnyChat] ERROR: Failed to get webview after creation: {}", label);
     }
 
     Ok(())
@@ -503,14 +503,14 @@ async fn capture_chat_message(
     messages: Vec<CapturedMessage>,
 ) -> Result<(), String> {
     println!(
-        "[ChatBox] capture_chat_message called: service={}, count={}",
+        "[AnyChat] capture_chat_message called: service={}, count={}",
         service_id,
         messages.len()
     );
     
     for msg in &messages {
         println!(
-            "[ChatBox] Captured: [{}] {}...",
+            "[AnyChat] Captured: [{}] {}...",
             msg.role,
             msg.content.chars().take(50).collect::<String>()
         );
@@ -560,23 +560,23 @@ pub fn run() {
             setup_complete: Mutex::new(false),
         })
         .setup(|app| {
-            println!("[ChatBox] Setup starting...");
+            println!("[AnyChat] Setup starting...");
             
             let main_webview_window = match WebviewWindowBuilder::new(
                 app,
                 "main",
                 WebviewUrl::App("index.html".into()),
             )
-            .title("ChatBox")
+            .title("")
             .inner_size(1200.0, 800.0)
             .min_inner_size(800.0, 600.0)
             .build() {
                 Ok(w) => {
-                    println!("[ChatBox] Main window created successfully");
+                    println!("[AnyChat] Main window created successfully");
                     w
                 }
                 Err(e) => {
-                    println!("[ChatBox] ERROR: Failed to create main window: {}", e);
+                    println!("[AnyChat] ERROR: Failed to create main window: {}", e);
                     return Err(e.into());
                 }
             };
@@ -608,13 +608,13 @@ pub fn run() {
                     let url_str = url.as_str();
                     if is_auth_url(url_str) {
                         #[cfg(debug_assertions)]
-                        println!("[ChatBox] Allowing OAuth navigation to: {}", url_str);
+                        println!("[AnyChat] Allowing OAuth navigation to: {}", url_str);
                     }
                     true
                 })
                 .on_new_window(move |url, _features| {
                     #[cfg(debug_assertions)]
-                    println!("[ChatBox] New window requested: {}", url);
+                    println!("[AnyChat] New window requested: {}", url);
 
                     if is_auth_url(url.as_str()) {
                         let popup_label = format!(
@@ -689,7 +689,7 @@ pub fn run() {
                 *setup_complete = true;
             }
 
-            println!("[ChatBox] Setup complete");
+            println!("[AnyChat] Setup complete");
 
             Ok(())
         })

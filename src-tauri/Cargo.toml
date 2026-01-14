@@ -1,12 +1,12 @@
 [package]
-name = "chat-box-app"
+name = "anychat"
 version = "0.1.0"
-description = "A multi-AI chat aggregator app"
+description = "Multi-AI Chat Aggregator Desktop App"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "chat_box_app_lib"
+name = "anychat_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -21,4 +21,3 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
-
