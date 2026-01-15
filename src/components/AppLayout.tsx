@@ -9,6 +9,7 @@ import { ChatHistoryPanel } from './ChatHistoryPanel';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useAppStore } from '@/stores/app-store';
 import { initDatabase, createSession, createMessage } from '@/services/database';
+import { startAutoBackup, stopAutoBackup } from '@/services/backup';
 
 interface CapturedMessage {
   role: 'user' | 'assistant' | 'system';
@@ -44,6 +45,15 @@ export function AppLayout() {
       .then(() => setDbReady(true))
       .catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (dbReady) {
+      startAutoBackup();
+    }
+    return () => {
+      stopAutoBackup();
+    };
+  }, [dbReady]);
 
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;

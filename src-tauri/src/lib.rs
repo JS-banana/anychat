@@ -1,9 +1,12 @@
 use std::collections::HashSet;
 use std::sync::Mutex;
 use tauri::{
-    webview::WebviewBuilder, Emitter, LogicalPosition, LogicalSize, Manager,
-    WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    menu::{MenuBuilder, MenuItemBuilder},
+    tray::TrayIconBuilder,
+    webview::WebviewBuilder,
+    Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
+use warp::Filter;
 
 const SIDEBAR_WIDTH: f64 = 64.0;
 
@@ -131,6 +134,30 @@ const AUTH_SCRIPT: &str = r#"
             userMessage: '.human-message',
             assistantMessage: '.assistant-message',
             content: '.prose'
+        },
+        'chat.qwen.ai': {
+            container: '[class*="chat-message"]',
+            userMessage: '[class*="user"]',
+            assistantMessage: '[class*="assistant"]',
+            content: '[class*="content"]'
+        },
+        'kimi.moonshot.cn': {
+            container: '[class*="message-item"]',
+            userMessage: '[class*="user"]',
+            assistantMessage: '[class*="assistant"]',
+            content: '[class*="content"]'
+        },
+        'poe.com': {
+            container: '[class*="Message_"]',
+            userMessage: '[class*="human"]',
+            assistantMessage: '[class*="bot"]',
+            content: '[class*="Markdown"]'
+        },
+        'perplexity.ai': {
+            container: '[class*="prose"]',
+            userMessage: '[class*="user"]',
+            assistantMessage: '[class*="prose"]',
+            content: '[class*="prose"]'
         }
     };
     
@@ -267,19 +294,25 @@ const AUTH_SCRIPT: &str = r#"
         const payload = JSON.stringify({
             type: 'chatbox_capture',
             serviceId: window.location.hostname,
+            url: window.location.href,
             messages: messages
         });
         
-        if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.ipc) {
-            window.__TAURI_INTERNALS__.ipc.postMessage(payload);
-            console.log('[AnyChat] Sent', messages.length, 'messages via IPC');
-        } else if (window.ipc && window.ipc.postMessage) {
-            window.ipc.postMessage(payload);
-            console.log('[AnyChat] Sent', messages.length, 'messages via ipc.postMessage');
-        } else {
-            window.__chatBoxPendingMessages.push(...messages);
-            console.log('[AnyChat] No IPC available, messages re-queued');
-        }
+        fetch('http://127.0.0.1:33445/capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload
+        }).then(response => {
+            if (response.ok) {
+                console.log('[AnyChat] Sent', messages.length, 'messages via HTTP');
+            } else {
+                window.__chatBoxPendingMessages.unshift(...messages);
+                console.log('[AnyChat] Failed to send, messages re-queued');
+            }
+        }).catch(err => {
+            window.__chatBoxPendingMessages.unshift(...messages);
+            console.log('[AnyChat] Fetch error, messages re-queued:', err);
+        });
     }
     
     setInterval(flushPendingMessages, 3000);
@@ -548,6 +581,16 @@ async fn capture_chat_message(
     Ok(())
 }
 
+#[derive(serde::Deserialize, Clone)]
+struct CapturePayload {
+    #[serde(rename = "type")]
+    _type: Option<String>,
+    #[serde(rename = "serviceId")]
+    service_id: String,
+    url: Option<String>,
+    messages: Vec<CapturedMessage>,
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -561,6 +604,79 @@ pub fn run() {
         })
         .setup(|app| {
             println!("[AnyChat] Setup starting...");
+            
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    let app_handle_for_route = app_handle.clone();
+                    
+                    let cors = warp::cors()
+                        .allow_any_origin()
+                        .allow_methods(vec!["POST", "OPTIONS"])
+                        .allow_headers(vec!["Content-Type"]);
+                    
+                    let capture_route = warp::post()
+                        .and(warp::path("capture"))
+                        .and(warp::body::json::<CapturePayload>())
+                        .map(move |payload: CapturePayload| {
+                            println!(
+                                "[AnyChat] HTTP received: service={}, messages={}",
+                                payload.service_id,
+                                payload.messages.len()
+                            );
+                            
+                            for msg in &payload.messages {
+                                println!(
+                                    "[AnyChat] Message: [{}] {}...",
+                                    msg.role,
+                                    msg.content.chars().take(50).collect::<String>()
+                                );
+                            }
+                            
+                            let _ = app_handle_for_route.emit(
+                                "chat-captured",
+                                ChatCaptureEvent {
+                                    service_id: payload.service_id.clone(),
+                                    messages: payload.messages.clone(),
+                                },
+                            );
+                            
+                            if let Ok(home_dir) = std::env::var("HOME") {
+                                let log_path = format!(
+                                    "{}/Library/Application Support/com.sunss.chat-box-app/captured_chats.jsonl",
+                                    home_dir
+                                );
+                                
+                                if let Ok(mut file) = std::fs::OpenOptions::new()
+                                    .create(true)
+                                    .append(true)
+                                    .open(&log_path)
+                                {
+                                    use std::io::Write;
+                                    for msg in &payload.messages {
+                                        let entry = serde_json::json!({
+                                            "service_id": payload.service_id,
+                                            "url": payload.url,
+                                            "role": msg.role,
+                                            "content": msg.content,
+                                            "captured_at": chrono::Utc::now().to_rfc3339()
+                                        });
+                                        let _ = writeln!(file, "{}", entry.to_string());
+                                    }
+                                }
+                            }
+                            
+                            warp::reply::json(&serde_json::json!({"status": "ok"}))
+                        })
+                        .with(cors);
+                    
+                    println!("[AnyChat] Starting HTTP server on 127.0.0.1:33445");
+                    warp::serve(capture_route)
+                        .run(([127, 0, 0, 1], 33445))
+                        .await;
+                });
+            });
             
             let main_webview_window = match WebviewWindowBuilder::new(
                 app,
@@ -689,9 +805,48 @@ pub fn run() {
                 *setup_complete = true;
             }
 
+            let show_item = MenuItemBuilder::with_id("show", "Show Window").build(app)?;
+            let hide_item = MenuItemBuilder::with_id("hide", "Hide Window").build(app)?;
+            let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+
+            let tray_menu = MenuBuilder::new(app)
+                .items(&[&show_item, &hide_item, &quit_item])
+                .build()?;
+
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&tray_menu)
+                .on_menu_event(|app_handle, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(w) = app_handle.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                    "hide" => {
+                        if let Some(w) = app_handle.get_webview_window("main") {
+                            let _ = w.hide();
+                        }
+                    }
+                    "quit" => {
+                        app_handle.exit(0);
+                    }
+                    _ => {}
+                })
+                .build(app)?;
+
+            println!("[AnyChat] System tray initialized");
             println!("[AnyChat] Setup complete");
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             switch_webview,
