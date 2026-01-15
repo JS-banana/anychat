@@ -24,10 +24,21 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { Trash2, Eye, EyeOff, GripVertical, Upload, Download, Loader2, Plus } from 'lucide-react';
+import {
+  Trash2,
+  Eye,
+  EyeOff,
+  GripVertical,
+  Upload,
+  Download,
+  Loader2,
+  Plus,
+  Save,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { importChatGPTExport, exportAllData } from '@/services/import-export';
+import { importChatGPTExport, importGeminiExport, exportAllData } from '@/services/import-export';
 import { getStatistics } from '@/services/database';
+import { createBackup, listBackups } from '@/services/backup';
 import { ChatService } from '@/types';
 import { getServiceIconCandidates } from '@/lib/icon';
 import { Input } from '@/components/ui/input';
@@ -116,7 +127,10 @@ export function SettingsDialog() {
   } = useAppStore();
 
   const [importing, setImporting] = useState(false);
+  const [importingGemini, setImportingGemini] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+  const [backupCount, setBackupCount] = useState(0);
   const [stats, setStats] = useState<{ totalSessions: number; totalMessages: number } | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newServiceName, setNewServiceName] = useState('');
@@ -159,6 +173,25 @@ export function SettingsDialog() {
     }
   };
 
+  const handleImportGemini = async () => {
+    setImportingGemini(true);
+    try {
+      const result = await importGeminiExport();
+      if (result.success) {
+        alert(
+          `Imported ${result.sessionsImported} sessions and ${result.messagesImported} messages`
+        );
+        loadStats();
+      } else if (result.errors.length > 0) {
+        alert(`Import errors: ${result.errors.join('\n')}`);
+      }
+    } catch (err) {
+      console.error('Gemini import failed:', err);
+    } finally {
+      setImportingGemini(false);
+    }
+  };
+
   const handleExport = async () => {
     setExporting(true);
     try {
@@ -181,8 +214,25 @@ export function SettingsDialog() {
     try {
       const data = await getStatistics();
       setStats(data);
+      const backups = await listBackups();
+      setBackupCount(backups.length);
     } catch (err) {
       console.error('Failed to load stats:', err);
+    }
+  };
+
+  const handleBackup = async () => {
+    setBackingUp(true);
+    try {
+      await createBackup();
+      const backups = await listBackups();
+      setBackupCount(backups.length);
+      alert('Backup created successfully!');
+    } catch (err) {
+      console.error('Backup failed:', err);
+      alert('Backup failed');
+    } finally {
+      setBackingUp(false);
     }
   };
 
@@ -296,10 +346,19 @@ export function SettingsDialog() {
             <h3 className="mb-3 text-sm font-medium">Data Management</h3>
             {stats && (
               <p className="mb-3 text-xs text-muted-foreground">
-                {stats.totalSessions} sessions · {stats.totalMessages} messages
+                {stats.totalSessions} sessions · {stats.totalMessages} messages · {backupCount}{' '}
+                backups
               </p>
             )}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={handleBackup} disabled={backingUp}>
+                {backingUp ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                Backup Now
+              </Button>
               <Button variant="outline" size="sm" onClick={handleImport} disabled={importing}>
                 {importing ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -307,6 +366,19 @@ export function SettingsDialog() {
                   <Upload className="mr-2 h-4 w-4" />
                 )}
                 Import ChatGPT
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleImportGemini}
+                disabled={importingGemini}
+              >
+                {importingGemini ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="mr-2 h-4 w-4" />
+                )}
+                Import Gemini
               </Button>
               <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
                 {exporting ? (

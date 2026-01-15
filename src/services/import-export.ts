@@ -34,6 +34,18 @@ interface ChatGPTExportConversation {
   >;
 }
 
+interface GeminiThread {
+  title: string;
+  messages: GeminiMessage[];
+}
+
+interface GeminiMessage {
+  message_id?: string;
+  author: 'user' | 'model';
+  content: string;
+  created_at?: string;
+}
+
 export async function importChatGPTExport(): Promise<ImportResult> {
   const result: ImportResult = {
     success: false,
@@ -81,6 +93,70 @@ export async function importChatGPTExport(): Promise<ImportResult> {
         }
       } catch (err) {
         result.errors.push(`Failed to import conversation "${conversation.title}": ${err}`);
+      }
+    }
+
+    result.success = true;
+  } catch (err) {
+    result.errors.push(`Import failed: ${err}`);
+  }
+
+  return result;
+}
+
+export async function importGeminiExport(): Promise<ImportResult> {
+  const result: ImportResult = {
+    success: false,
+    sessionsImported: 0,
+    messagesImported: 0,
+    errors: [],
+  };
+
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [
+        {
+          name: 'JSON',
+          extensions: ['json'],
+        },
+      ],
+    });
+
+    if (!selected) {
+      result.errors.push('No file selected');
+      return result;
+    }
+
+    const content = await readTextFile(selected as string);
+    const data = JSON.parse(content) as GeminiThread[];
+
+    if (!Array.isArray(data)) {
+      result.errors.push('Invalid Gemini export format');
+      return result;
+    }
+
+    for (const thread of data) {
+      try {
+        const title = thread.title || 'Untitled Conversation';
+        const sessionId = await createSession('gemini', title);
+        result.sessionsImported++;
+
+        const sortedMessages = [...thread.messages].sort((a, b) => {
+          const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return timeA - timeB;
+        });
+
+        for (const msg of sortedMessages) {
+          if (msg.content && msg.content.trim()) {
+            const role = msg.author === 'model' ? 'assistant' : 'user';
+            await createMessage(sessionId, role, msg.content, 'manual_import');
+            result.messagesImported++;
+          }
+        }
+      } catch (err) {
+        result.errors.push(`Failed to import thread "${thread.title}": ${err}`);
       }
     }
 
