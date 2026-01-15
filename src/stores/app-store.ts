@@ -99,6 +99,31 @@ export const useAppStore = create<AppState>()(
         services: state.services,
         activeServiceId: state.activeServiceId,
       }),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<AppState>;
+        const persistedServices = persisted.services ?? [];
+
+        const mergedServices = DEFAULT_SERVICES.map((defaultService) => {
+          const saved = persistedServices.find((s) => s.id === defaultService.id);
+          if (saved) {
+            return {
+              ...defaultService,
+              enabled: saved.enabled,
+              order: saved.order,
+            };
+          }
+          return defaultService;
+        });
+
+        const customServices = persistedServices.filter((s) => s.id.startsWith('custom-'));
+        const allServices = [...mergedServices, ...customServices];
+
+        return {
+          ...currentState,
+          ...persisted,
+          services: allServices,
+        };
+      },
     }
   )
 );

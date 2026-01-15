@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Settings, Plus, MessageSquare, History } from 'lucide-react';
+import { useState } from 'react';
+import { Settings, MessageSquare, History } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '@/stores/app-store';
 import { Button } from '@/components/ui/button';
@@ -8,30 +7,45 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils';
 import { getServiceIconCandidates } from '@/lib/icon';
 
+interface ServiceIconProps {
+  serviceId: string;
+  serviceUrl: string;
+  iconUrl?: string;
+  serviceName: string;
+}
+
+function ServiceIcon({ serviceUrl, iconUrl, serviceName }: ServiceIconProps) {
+  const candidates = getServiceIconCandidates(serviceUrl, iconUrl);
+  const [errorIndex, setErrorIndex] = useState(0);
+
+  const currentIcon = candidates[errorIndex];
+
+  if (!currentIcon) {
+    return <MessageSquare className="h-5 w-5 text-muted-foreground" />;
+  }
+
+  return (
+    <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-lg">
+      <img
+        src={currentIcon}
+        alt={serviceName}
+        className="h-6 w-6 object-contain"
+        onError={() => setErrorIndex((prev) => prev + 1)}
+      />
+    </div>
+  );
+}
+
 export function Sidebar() {
   const {
     services,
     activeServiceId,
     setActiveService,
     setSettingsOpen,
-    setAddServiceDialogOpen,
     setChatHistoryOpen,
   } = useAppStore();
 
-  const [iconErrorIndex, setIconErrorIndex] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    setIconErrorIndex({});
-  }, [services]);
-
   const enabledServices = services.filter((s) => s.enabled).sort((a, b) => a.order - b.order);
-
-  const handleImageError = (serviceId: string) => {
-    setIconErrorIndex((prev) => ({
-      ...prev,
-      [serviceId]: (prev[serviceId] ?? 0) + 1,
-    }));
-  };
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -43,15 +57,13 @@ export function Sidebar() {
             return (
               <Tooltip key={service.id}>
                 <TooltipTrigger asChild>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                  <button
                     onClick={async () => {
                       setActiveService(service.id);
                       await invoke('switch_webview', { label: service.id, url: service.url });
                     }}
                     className={cn(
-                      'relative flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200',
+                      'relative flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200 hover:scale-105 active:scale-95',
                       isActive
                         ? 'bg-black/[0.06] ring-1 ring-black/10'
                         : 'hover:bg-black/[0.04]'
@@ -59,35 +71,13 @@ export function Sidebar() {
                     aria-pressed={isActive}
                     aria-label={service.name}
                   >
-                    {isActive && (
-                      <motion.div
-                        layoutId="activeIndicator"
-                        className="absolute -left-[6px] h-6 w-1 rounded-full bg-blue-500"
-                        initial={false}
-                        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                      />
-                    )}
-                    {(() => {
-                      const candidates = getServiceIconCandidates(service.url, service.iconUrl);
-                      const errorIndex = iconErrorIndex[service.id] ?? 0;
-                      const iconUrl = candidates[errorIndex];
-
-                      if (!iconUrl) {
-                        return <MessageSquare className="h-5 w-5" />;
-                      }
-
-                      return (
-                        <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-lg">
-                          <img
-                            src={iconUrl}
-                            alt={service.name}
-                            className="h-6 w-6 object-contain"
-                            onError={() => handleImageError(service.id)}
-                          />
-                        </div>
-                      );
-                    })()}
-                  </motion.button>
+                    <ServiceIcon
+                      serviceId={service.id}
+                      serviceUrl={service.url}
+                      iconUrl={service.iconUrl}
+                      serviceName={service.name}
+                    />
+                  </button>
                 </TooltipTrigger>
                 <TooltipContent side="right">
                   <p>{service.name}</p>
@@ -95,22 +85,6 @@ export function Sidebar() {
               </Tooltip>
             );
           })}
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="mt-2 h-11 w-11 rounded-xl border-2 border-dashed border-sidebar-border text-sidebar-foreground/50 hover:border-sidebar-foreground/30 hover:text-sidebar-foreground"
-                onClick={() => setAddServiceDialogOpen(true)}
-              >
-                <Plus className="h-5 w-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Add Service</p>
-            </TooltipContent>
-          </Tooltip>
         </div>
 
         <div className="flex flex-col items-center gap-2 pt-2">

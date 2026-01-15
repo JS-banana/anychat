@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -24,12 +24,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { Trash2, Eye, EyeOff, GripVertical, Upload, Download, Loader2 } from 'lucide-react';
+import { Trash2, Eye, EyeOff, GripVertical, Upload, Download, Loader2, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getServiceIconCandidates } from '@/lib/icon';
 import { importChatGPTExport, exportAllData } from '@/services/import-export';
 import { getStatistics } from '@/services/database';
 import { ChatService } from '@/types';
+import { getServiceIconCandidates } from '@/lib/icon';
+import { Input } from '@/components/ui/input';
 
 interface SortableServiceItemProps {
   service: ChatService;
@@ -38,11 +39,10 @@ interface SortableServiceItemProps {
 }
 
 function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceItemProps) {
-  const [iconErrorIndex, setIconErrorIndex] = useState(0);
+  const candidates = getServiceIconCandidates(service.url, service.iconUrl);
+  const [errorIndex, setErrorIndex] = useState(0);
+  const iconUrl = candidates[errorIndex];
 
-  useEffect(() => {
-    setIconErrorIndex(0);
-  }, [service.url, service.iconUrl]);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: service.id,
   });
@@ -69,25 +69,16 @@ function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceIte
       />
 
       <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-        {(() => {
-          const candidates = getServiceIconCandidates(service.url, service.iconUrl);
-          const iconUrl = candidates[iconErrorIndex];
-
-          if (!iconUrl) {
-            return (
-              <span className="text-xs font-medium">{service.name.charAt(0).toUpperCase()}</span>
-            );
-          }
-
-          return (
-            <img
-              src={iconUrl}
-              alt={service.name}
-              className="h-5 w-5 object-contain"
-              onError={() => setIconErrorIndex((prev) => prev + 1)}
-            />
-          );
-        })()}
+        {!iconUrl ? (
+          <span className="text-xs font-medium">{service.name.charAt(0).toUpperCase()}</span>
+        ) : (
+          <img
+            src={iconUrl}
+            alt={service.name}
+            className="h-5 w-5 object-contain"
+            onError={() => setErrorIndex((prev) => prev + 1)}
+          />
+        )}
       </div>
 
       <div className="flex-1">
@@ -121,11 +112,15 @@ export function SettingsDialog() {
     toggleServiceEnabled,
     removeService,
     reorderServices,
+    addService,
   } = useAppStore();
 
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [stats, setStats] = useState<{ totalSessions: number; totalMessages: number } | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newServiceName, setNewServiceName] = useState('');
+  const [newServiceUrl, setNewServiceUrl] = useState('');
 
   const sortedServices = [...services].sort((a, b) => a.order - b.order);
 
@@ -199,7 +194,7 @@ export function SettingsDialog() {
         if (open) loadStats();
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
@@ -222,7 +217,7 @@ export function SettingsDialog() {
                 items={sortedServices.map((s) => s.id)}
                 strategy={verticalListSortingStrategy}
               >
-                <div className="space-y-2">
+                <div className="max-h-[40vh] space-y-2 overflow-y-auto pr-1">
                   {sortedServices.map((service) => (
                     <SortableServiceItem
                       key={service.id}
@@ -234,6 +229,67 @@ export function SettingsDialog() {
                 </div>
               </SortableContext>
             </DndContext>
+
+            {showAddForm ? (
+              <div className="mt-3 space-y-2 rounded-lg border border-dashed p-3">
+                <Input
+                  placeholder="Service name"
+                  value={newServiceName}
+                  onChange={(e) => setNewServiceName(e.target.value)}
+                  autoFocus
+                />
+                <Input
+                  placeholder="https://example.com"
+                  value={newServiceUrl}
+                  onChange={(e) => setNewServiceUrl(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      if (newServiceName.trim() && newServiceUrl.trim()) {
+                        let url = newServiceUrl.trim();
+                        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                          url = `https://${url}`;
+                        }
+                        addService({
+                          name: newServiceName.trim(),
+                          url,
+                          enabled: true,
+                        });
+                        setNewServiceName('');
+                        setNewServiceUrl('');
+                        setShowAddForm(false);
+                      }
+                    }}
+                    disabled={!newServiceName.trim() || !newServiceUrl.trim()}
+                  >
+                    Add
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setShowAddForm(false);
+                      setNewServiceName('');
+                      setNewServiceUrl('');
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-3 w-full justify-start text-muted-foreground"
+                onClick={() => setShowAddForm(true)}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add custom service
+              </Button>
+            )}
           </div>
 
           <div className="border-t pt-4">
@@ -266,7 +322,7 @@ export function SettingsDialog() {
           <div className="border-t pt-4">
             <h3 className="mb-3 text-sm font-medium">About</h3>
             <p className="text-sm text-muted-foreground">
-              ChatBox v0.1.0 - A multi-AI chat aggregator app.
+              AnyChat v0.1.0 - A multi-AI chat aggregator app.
             </p>
           </div>
         </div>
