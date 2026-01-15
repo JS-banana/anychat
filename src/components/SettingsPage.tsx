@@ -34,7 +34,14 @@ import {
   Calendar,
   X,
   MessageSquare,
+  Bot,
+  Brain,
+  Sparkles,
+  Zap,
+  Globe,
+  CircleDot,
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { getServiceIconCandidates } from '@/lib/icon';
 import { ChatService } from '@/types';
@@ -49,6 +56,17 @@ import {
 } from '@/services/database';
 import { createBackup } from '@/services/backup';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// 预设图标列表
+const PRESET_ICONS = [
+  { id: 'message', Icon: MessageSquare, label: '聊天' },
+  { id: 'bot', Icon: Bot, label: '机器人' },
+  { id: 'brain', Icon: Brain, label: '大脑' },
+  { id: 'sparkles', Icon: Sparkles, label: '闪光' },
+  { id: 'zap', Icon: Zap, label: '闪电' },
+  { id: 'globe', Icon: Globe, label: '地球' },
+  { id: 'circle', Icon: CircleDot, label: '圆点' },
+];
 
 // --- Sub-components for Services Tab ---
 
@@ -138,9 +156,12 @@ export function SettingsPage() {
     addService,
   } = useAppStore();
 
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [showAddDialog, setShowAddDialog] = useState(false);
   const [newServiceName, setNewServiceName] = useState('');
   const [newServiceUrl, setNewServiceUrl] = useState('');
+  const [fetchedLogoUrl, setFetchedLogoUrl] = useState<string | null>(null);
+  const [selectedPresetIcon, setSelectedPresetIcon] = useState<string | null>(null);
+  const [logoLoading, setLogoLoading] = useState(false);
 
   // Data Management State
   const [exporting, setExporting] = useState(false);
@@ -297,6 +318,74 @@ export function SettingsPage() {
     });
   };
 
+  const isValidUrl = (url: string) => {
+    try {
+      new URL(url.startsWith('http') ? url : `https://${url}`);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const fetchLogo = async (url: string) => {
+    setLogoLoading(true);
+    setFetchedLogoUrl(null);
+    const normalizedUrl = url.startsWith('http') ? url : `https://${url}`;
+    const candidates = getServiceIconCandidates(normalizedUrl);
+
+    for (const candidate of candidates) {
+      try {
+        const img = new Image();
+        img.src = candidate;
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject();
+        });
+        setFetchedLogoUrl(candidate);
+        setLogoLoading(false);
+        return;
+      } catch {
+        continue;
+      }
+    }
+    setLogoLoading(false);
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (newServiceUrl && isValidUrl(newServiceUrl)) {
+        fetchLogo(newServiceUrl);
+      } else {
+        setFetchedLogoUrl(null);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [newServiceUrl]);
+
+  const handleAddService = () => {
+    if (newServiceName.trim() && newServiceUrl.trim()) {
+      let url = newServiceUrl.trim();
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = `https://${url}`;
+      }
+      addService({
+        name: newServiceName.trim(),
+        url,
+        enabled: true,
+        iconUrl: fetchedLogoUrl || undefined,
+      });
+      resetAddForm();
+    }
+  };
+
+  const resetAddForm = () => {
+    setNewServiceName('');
+    setNewServiceUrl('');
+    setFetchedLogoUrl(null);
+    setSelectedPresetIcon(null);
+    setShowAddDialog(false);
+  };
+
   if (!settingsPageOpen) return null;
 
   return (
@@ -349,13 +438,20 @@ export function SettingsPage() {
       <div className="flex-1 flex flex-col overflow-hidden bg-background">
         {settingsActiveTab === 'services' && (
           <div className="flex-1 overflow-y-auto p-8 max-w-3xl [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
-            <h1 className="text-2xl font-bold mb-6">服务管理</h1>
-            <div className="space-y-6">
+            <div className="flex items-center justify-between mb-6">
               <div>
-                <p className="text-sm text-muted-foreground mb-4">
+                <h1 className="text-2xl font-bold">服务管理</h1>
+                <p className="text-sm text-muted-foreground mt-1">
                   拖拽排序服务。点击眼睛图标切换显示/隐藏。
                 </p>
-
+              </div>
+              <Button onClick={() => setShowAddDialog(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                添加服务
+              </Button>
+            </div>
+            <div className="space-y-6">
+              <div>
                 <DndContext
                   sensors={sensors}
                   collisionDetection={closestCenter}
@@ -377,67 +473,6 @@ export function SettingsPage() {
                     </div>
                   </SortableContext>
                 </DndContext>
-
-                {showAddForm ? (
-                  <div className="mt-4 space-y-3 rounded-lg border border-dashed p-4 animate-in fade-in slide-in-from-top-2">
-                    <h3 className="font-medium">添加自定义服务</h3>
-                    <div className="space-y-2">
-                      <Input
-                        placeholder="服务名称"
-                        value={newServiceName}
-                        onChange={(e) => setNewServiceName(e.target.value)}
-                        autoFocus
-                      />
-                      <Input
-                        placeholder="服务地址 (例如 https://chat.example.com)"
-                        value={newServiceUrl}
-                        onChange={(e) => setNewServiceUrl(e.target.value)}
-                      />
-                    </div>
-                    <div className="flex gap-2 justify-end">
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          setShowAddForm(false);
-                          setNewServiceName('');
-                          setNewServiceUrl('');
-                        }}
-                      >
-                        取消
-                      </Button>
-                      <Button
-                        onClick={() => {
-                          if (newServiceName.trim() && newServiceUrl.trim()) {
-                            let url = newServiceUrl.trim();
-                            if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                              url = `https://${url}`;
-                            }
-                            addService({
-                              name: newServiceName.trim(),
-                              url,
-                              enabled: true,
-                            });
-                            setNewServiceName('');
-                            setNewServiceUrl('');
-                            setShowAddForm(false);
-                          }
-                        }}
-                        disabled={!newServiceName.trim() || !newServiceUrl.trim()}
-                      >
-                        添加
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <Button
-                    variant="outline"
-                    className="mt-4 w-full border-dashed"
-                    onClick={() => setShowAddForm(true)}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    添加自定义服务
-                  </Button>
-                )}
               </div>
             </div>
           </div>
@@ -677,6 +712,118 @@ export function SettingsPage() {
           </div>
         )}
       </div>
+
+      {/* Add Service Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>添加自定义服务</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Service Name */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">服务名称</label>
+              <Input
+                placeholder="例如：My AI Chat"
+                value={newServiceName}
+                onChange={(e) => setNewServiceName(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            {/* Service URL */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">服务地址</label>
+              <Input
+                placeholder="例如：https://chat.example.com"
+                value={newServiceUrl}
+                onChange={(e) => setNewServiceUrl(e.target.value)}
+              />
+            </div>
+
+            {/* Logo Preview */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">图标预览</label>
+              <div className="flex items-center gap-4">
+                <div className="h-12 w-12 rounded-lg border bg-muted flex items-center justify-center overflow-hidden">
+                  {logoLoading ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  ) : fetchedLogoUrl ? (
+                    <img src={fetchedLogoUrl} alt="Logo" className="h-8 w-8 object-contain" />
+                  ) : selectedPresetIcon ? (
+                    (() => {
+                      const preset = PRESET_ICONS.find((p) => p.id === selectedPresetIcon);
+                      if (preset) {
+                        const IconComp = preset.Icon;
+                        return <IconComp className="h-6 w-6 text-primary" />;
+                      }
+                      return <Globe className="h-6 w-6 text-muted-foreground" />;
+                    })()
+                  ) : (
+                    <Globe className="h-6 w-6 text-muted-foreground" />
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground flex-1">
+                  {logoLoading
+                    ? '正在获取图标...'
+                    : fetchedLogoUrl
+                      ? '已从网站获取图标'
+                      : '输入地址后自动获取，或选择预设图标'}
+                </p>
+              </div>
+            </div>
+
+            {/* Preset Icons */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">预设图标</label>
+              <div className="grid grid-cols-7 gap-2">
+                {PRESET_ICONS.map((preset) => {
+                  const IconComp = preset.Icon;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={cn(
+                        'h-10 w-10 rounded-lg border flex items-center justify-center transition-all hover:border-primary/50',
+                        selectedPresetIcon === preset.id
+                          ? 'border-primary bg-primary/10'
+                          : 'border-border bg-muted/30'
+                      )}
+                      onClick={() => {
+                        setSelectedPresetIcon(preset.id);
+                        setFetchedLogoUrl(null);
+                      }}
+                      title={preset.label}
+                    >
+                      <IconComp
+                        className={cn(
+                          'h-5 w-5',
+                          selectedPresetIcon === preset.id
+                            ? 'text-primary'
+                            : 'text-muted-foreground'
+                        )}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={resetAddForm}>
+              取消
+            </Button>
+            <Button
+              onClick={handleAddService}
+              disabled={!newServiceName.trim() || !newServiceUrl.trim()}
+            >
+              添加
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
