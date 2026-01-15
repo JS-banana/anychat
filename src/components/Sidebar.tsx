@@ -93,7 +93,7 @@ export function Sidebar() {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>Settings & History</p>
+              <p>设置</p>
             </TooltipContent>
           </Tooltip>
         </div>

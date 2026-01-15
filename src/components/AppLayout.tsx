@@ -101,11 +101,10 @@ export function AppLayout() {
   }, [isAnyDialogOpen, activeServiceId, activeService?.url]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background dark">
+    <div className="flex h-screen w-screen overflow-hidden bg-background">
       <Sidebar />
-      <WebViewContainer />
+      {settingsPageOpen ? <SettingsPage /> : <WebViewContainer />}
       <AddServiceDialog />
-      <SettingsPage />
       {!dbReady && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-muted-foreground">Initializing...</div>
