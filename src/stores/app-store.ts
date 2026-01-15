@@ -5,9 +5,9 @@ import { ChatService, DEFAULT_SERVICES } from '@/types';
 interface AppState {
   services: ChatService[];
   activeServiceId: string | null;
-  settingsOpen: boolean;
+  settingsPageOpen: boolean;
+  settingsActiveTab: 'services' | 'data' | 'about';
   addServiceDialogOpen: boolean;
-  chatHistoryOpen: boolean;
 
   setActiveService: (id: string) => void;
   addService: (service: Omit<ChatService, 'id' | 'order'>) => void;
@@ -15,9 +15,9 @@ interface AppState {
   updateService: (id: string, updates: Partial<ChatService>) => void;
   toggleServiceEnabled: (id: string) => void;
   reorderServices: (startIndex: number, endIndex: number) => void;
-  setSettingsOpen: (open: boolean) => void;
+  setSettingsPageOpen: (open: boolean) => void;
+  setSettingsActiveTab: (tab: 'services' | 'data' | 'about') => void;
   setAddServiceDialogOpen: (open: boolean) => void;
-  setChatHistoryOpen: (open: boolean) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -25,9 +25,9 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       services: DEFAULT_SERVICES,
       activeServiceId: DEFAULT_SERVICES.find((s) => s.enabled)?.id ?? null,
-      settingsOpen: false,
+      settingsPageOpen: false,
+      settingsActiveTab: 'services',
       addServiceDialogOpen: false,
-      chatHistoryOpen: false,
 
       setActiveService: (id) => {
         const service = get().services.find((s) => s.id === id);
@@ -89,9 +89,9 @@ export const useAppStore = create<AppState>()(
         });
       },
 
-      setSettingsOpen: (open) => set({ settingsOpen: open }),
+      setSettingsPageOpen: (open) => set({ settingsPageOpen: open }),
+      setSettingsActiveTab: (tab) => set({ settingsActiveTab: tab }),
       setAddServiceDialogOpen: (open) => set({ addServiceDialogOpen: open }),
-      setChatHistoryOpen: (open) => set({ chatHistoryOpen: open }),
     }),
     {
       name: 'chat-box-app-storage',

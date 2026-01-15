@@ -117,8 +117,8 @@ function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceIte
 
 export function SettingsDialog() {
   const {
-    settingsOpen,
-    setSettingsOpen,
+    settingsPageOpen: settingsOpen,
+    setSettingsPageOpen: setSettingsOpen,
     services,
     toggleServiceEnabled,
     removeService,

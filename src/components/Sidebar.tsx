@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings, MessageSquare, History } from 'lucide-react';
+import { Settings, MessageSquare } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '@/stores/app-store';
 import { Button } from '@/components/ui/button';
@@ -37,13 +37,7 @@ function ServiceIcon({ serviceUrl, iconUrl, serviceName }: ServiceIconProps) {
 }
 
 export function Sidebar() {
-  const {
-    services,
-    activeServiceId,
-    setActiveService,
-    setSettingsOpen,
-    setChatHistoryOpen,
-  } = useAppStore();
+  const { services, activeServiceId, setActiveService, setSettingsPageOpen } = useAppStore();
 
   const enabledServices = services.filter((s) => s.enabled).sort((a, b) => a.order - b.order);
 
@@ -60,13 +54,12 @@ export function Sidebar() {
                   <button
                     onClick={async () => {
                       setActiveService(service.id);
+                      setSettingsPageOpen(false);
                       await invoke('switch_webview', { label: service.id, url: service.url });
                     }}
                     className={cn(
                       'relative flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200 hover:scale-105 active:scale-95',
-                      isActive
-                        ? 'bg-black/[0.06] ring-1 ring-black/10'
-                        : 'hover:bg-black/[0.04]'
+                      isActive ? 'bg-black/[0.06] ring-1 ring-black/10' : 'hover:bg-black/[0.04]'
                     )}
                     aria-pressed={isActive}
                     aria-label={service.name}
@@ -94,29 +87,13 @@ export function Sidebar() {
                 variant="ghost"
                 size="icon"
                 className="h-11 w-11 rounded-xl text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                onClick={() => setChatHistoryOpen(true)}
-              >
-                <History className="h-5 w-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Chat History</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-11 w-11 rounded-xl text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                onClick={() => setSettingsOpen(true)}
+                onClick={() => setSettingsPageOpen(true)}
               >
                 <Settings className="h-5 w-5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>Settings</p>
+              <p>Settings & History</p>
             </TooltipContent>
           </Tooltip>
         </div>

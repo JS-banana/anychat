@@ -4,8 +4,7 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { Sidebar } from './Sidebar';
 import { WebViewContainer } from './WebViewContainer';
 import { AddServiceDialog } from './AddServiceDialog';
-import { SettingsDialog } from './SettingsDialog';
-import { ChatHistoryPanel } from './ChatHistoryPanel';
+import { SettingsPage } from './SettingsPage';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useAppStore } from '@/stores/app-store';
 import { initDatabase, createSession, createMessage } from '@/services/database';
@@ -25,16 +24,9 @@ interface ChatCaptureEvent {
 
 export function AppLayout() {
   const [dbReady, setDbReady] = useState(false);
-  const {
-    chatHistoryOpen,
-    setChatHistoryOpen,
-    activeServiceId,
-    settingsOpen,
-    addServiceDialogOpen,
-    services,
-  } = useAppStore();
+  const { activeServiceId, settingsPageOpen, addServiceDialogOpen, services } = useAppStore();
 
-  const isAnyDialogOpen = settingsOpen || addServiceDialogOpen || chatHistoryOpen;
+  const isAnyDialogOpen = settingsPageOpen || addServiceDialogOpen;
   const activeService = services.find((s) => s.id === activeServiceId);
   const sessionCacheRef = useRef<Record<string, string>>({});
 
@@ -113,8 +105,7 @@ export function AppLayout() {
       <Sidebar />
       <WebViewContainer />
       <AddServiceDialog />
-      <SettingsDialog />
-      <ChatHistoryPanel open={chatHistoryOpen} onOpenChange={setChatHistoryOpen} />
+      <SettingsPage />
       {!dbReady && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-muted-foreground">Initializing...</div>
