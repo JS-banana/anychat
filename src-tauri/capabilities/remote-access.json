@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-access",
+  "description": "Allow remote AI sites to access Tauri IPC for data capture",
+  "windows": ["main"],
+  "webviews": ["*"],
+  "remote": {
+    "urls": [
+      "https://chatgpt.com/*",
+      "https://claude.ai/*",
+      "https://gemini.google.com/*",
+      "https://chat.deepseek.com/*",
+      "https://poe.com/*",
+      "https://perplexity.ai/*",
+      "https://kimi.moonshot.cn/*",
+      "https://chat.qwen.ai/*",
+      "https://www.doubao.com/*",
+      "https://chatglm.cn/*",
+      "https://grok.com/*",
+      "https://copilot.microsoft.com/*"
+    ]
+  },
+  "permissions": ["core:default", "core:window:default", "core:webview:default"]
+}

@@ -21,6 +21,14 @@ const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KH
 
 const AUTH_SCRIPT: &str = r#"
 (function() {
+    // Mark script injection success
+    window.__anychatInjected = true;
+    window.__anychatTimestamp = Date.now();
+    console.log('[AnyChat] Script injected at:', window.location.hostname, 'time:', new Date().toISOString());
+
+    // ============================================================
+    // 1. WebAuthn/Passkeys 禁用（保留原有逻辑）
+    // ============================================================
     if (navigator.credentials) {
         const disabledCredentials = {
             create: function() { 
@@ -60,6 +68,9 @@ const AUTH_SCRIPT: &str = r#"
         } catch (e) {}
     }
 
+    // ============================================================
+    // 2. OAuth 弹窗支持（保留原有逻辑）
+    // ============================================================
     const AUTH_DOMAINS = [
         'accounts.google.com',
         'login.microsoftonline.com',
@@ -107,9 +118,410 @@ const AUTH_SCRIPT: &str = r#"
         return originalWindowOpen.call(window, url, name, specs);
     };
 
-    // Chat capture functionality
-    window.__chatBoxCapturedMessages = new Set();
+    // ============================================================
+    // 3. 数据捕获核心状态
+    // ============================================================
+    window.__anychat = {
+        capturedHashes: new Set(),
+        pendingMessages: [],
+        conversationId: null,
+        ipcAvailable: false
+    };
+
+    // ============================================================
+    // 4. 数据队列（CSP-safe：无网络请求，Rust 轮询读取）
+    // ============================================================
+    window.__anychatQueue = [];
     
+    function sendToBackend(payload) {
+        const entry = {
+            serviceId: payload.serviceId,
+            messages: payload.messages,
+            url: window.location.href,
+            timestamp: Date.now()
+        };
+        window.__anychatQueue.push(entry);
+        console.log('[AnyChat] Queued', payload.messages?.length || 0, 'messages (total queue:', window.__anychatQueue.length + ')');
+        return true;
+    }
+    }
+
+    // ============================================================
+    // 5. API 端点匹配配置
+    // ============================================================
+    const API_PATTERNS = {
+        'chatgpt.com': {
+            // POST /backend-api/conversation (发送消息, SSE)
+            // GET /backend-api/conversation/{uuid} (获取历史, JSON)
+            pattern: /\/backend-api\/conversation(\/[a-f0-9-]{36})?$/,
+            type: 'auto',
+            extractMessages: extractChatGPTMessages
+        },
+        'claude.ai': {
+            pattern: /\/api\/organizations\/.*\/chat_conversations\/.*\/completion/,
+            type: 'sse',
+            extractMessages: extractClaudeMessages
+        },
+        'gemini.google.com': {
+            pattern: /\/_\/BardChatUi\/data\/.*batchexecute/,
+            type: 'json',
+            extractMessages: extractGeminiMessages
+        },
+        'chat.deepseek.com': {
+            pattern: /\/api\/.*chat/i,
+            type: 'sse',
+            extractMessages: extractGenericSSEMessages
+        }
+    };
+
+    function getApiConfig() {
+        const hostname = window.location.hostname;
+        for (const [domain, config] of Object.entries(API_PATTERNS)) {
+            if (hostname.includes(domain.replace('www.', ''))) {
+                return config;
+            }
+        }
+        return null;
+    }
+
+    // ============================================================
+    // 6. SSE 流解析器
+    // ============================================================
+    async function parseSSEStream(reader, onEvent) {
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6).trim();
+                        if (data === '[DONE]') {
+                            onEvent({ done: true });
+                            continue;
+                        }
+                        try {
+                            const parsed = JSON.parse(data);
+                            onEvent({ data: parsed });
+                        } catch (e) {
+                            // 非 JSON 数据，忽略
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.log('[AnyChat] SSE parsing error:', err);
+        }
+    }
+
+    // ChatGPT SSE: message.content.parts contains accumulated full text
+    // Stream ends with message.status === "finished_successfully" or data: [DONE]
+    function extractChatGPTMessages(events, requestBody) {
+        const messages = [];
+        let conversationId = null;
+        let finalAssistantMessage = null;
+        
+        for (const event of events) {
+            if (event.done) continue;
+            const data = event.data;
+            
+            if (data?.message) {
+                const msg = data.message;
+                conversationId = data.conversation_id || conversationId;
+                
+                if (msg.author?.role === 'assistant' && msg.content?.parts) {
+                    finalAssistantMessage = {
+                        id: msg.id,
+                        role: 'assistant',
+                        content: msg.content.parts.join(''),
+                        model: msg.metadata?.model_slug,
+                        status: msg.status
+                    };
+                }
+            }
+        }
+        
+        if (finalAssistantMessage && finalAssistantMessage.content?.trim()) {
+            messages.push({
+                role: finalAssistantMessage.role,
+                content: finalAssistantMessage.content.trim(),
+                externalId: finalAssistantMessage.id,
+                conversationId: conversationId,
+                model: finalAssistantMessage.model,
+                timestamp: Date.now(),
+                source: 'api'
+            });
+        }
+        
+        if (requestBody) {
+            try {
+                const reqData = typeof requestBody === 'string' 
+                    ? JSON.parse(requestBody) 
+                    : requestBody;
+                    
+                if (reqData.messages && reqData.messages[0]) {
+                    const userMsg = reqData.messages[0];
+                    const userContent = userMsg.content?.parts?.join('') || '';
+                    
+                    if (userContent?.trim()) {
+                        messages.unshift({
+                            role: 'user',
+                            content: userContent.trim(),
+                            externalId: userMsg.id,
+                            conversationId: conversationId || reqData.conversation_id,
+                            timestamp: Date.now() - 1,
+                            source: 'api'
+                        });
+                    }
+                }
+            } catch (e) {
+                console.log('[AnyChat] Failed to parse request body:', e);
+            }
+        }
+        
+        return messages;
+    }
+
+    // ============================================================
+    // 7b. ChatGPT 历史对话 JSON 提取器
+    // ============================================================
+    function extractChatGPTHistoryMessages(jsonText) {
+        const messages = [];
+        try {
+            const data = JSON.parse(jsonText);
+            
+            if (data?.mapping) {
+                const conversationId = data.conversation_id;
+                
+                for (const [nodeId, node] of Object.entries(data.mapping)) {
+                    const msg = node?.message;
+                    if (!msg || !msg.content?.parts) continue;
+                    
+                    const role = msg.author?.role;
+                    if (role !== 'user' && role !== 'assistant') continue;
+                    
+                    const content = msg.content.parts.join('').trim();
+                    if (!content) continue;
+                    
+                    messages.push({
+                        role: role,
+                        content: content,
+                        externalId: msg.id,
+                        conversationId: conversationId,
+                        timestamp: msg.create_time ? msg.create_time * 1000 : Date.now(),
+                        source: 'history'
+                    });
+                }
+                
+                messages.sort((a, b) => a.timestamp - b.timestamp);
+            }
+        } catch (e) {
+            console.log('[AnyChat] Failed to parse ChatGPT history:', e);
+        }
+        return messages;
+    }
+
+    // ============================================================
+    // 8. Claude 消息提取器
+    // ============================================================
+    function extractClaudeMessages(events, requestBodyText) {
+        const messages = [];
+        let content = '';
+        let conversationId = null;
+        
+        if (requestBodyText) {
+            try {
+                const reqData = JSON.parse(requestBodyText);
+                if (reqData.prompt) {
+                    messages.push({
+                        role: 'user',
+                        content: reqData.prompt.trim(),
+                        timestamp: Date.now() - 1,
+                        source: 'api'
+                    });
+                }
+                conversationId = reqData.conversation_uuid;
+            } catch (e) {}
+        }
+        
+        for (const event of events) {
+            if (event.done) continue;
+            const data = event.data;
+            
+            if (data?.completion) {
+                content += data.completion;
+            } else if (data?.delta?.text) {
+                content += data.delta.text;
+            } else if (data?.content_block?.text) {
+                content += data.content_block.text;
+            }
+        }
+        
+        if (content && content.trim()) {
+            messages.push({
+                role: 'assistant',
+                content: content.trim(),
+                conversationId: conversationId,
+                timestamp: Date.now(),
+                source: 'api'
+            });
+        }
+        
+        return messages;
+    }
+
+    // ============================================================
+    // 9. Gemini 消息提取器（BatchExecute 格式）
+    // ============================================================
+    function extractGeminiMessages(jsonData) {
+        const messages = [];
+        try {
+            // Gemini 使用复杂的嵌套数组格式
+            // 通常响应结构为: )]}\n[[["wrb.fr",...,[[text]],...]]
+            let text = '';
+            
+            if (typeof jsonData === 'string') {
+                // 移除安全前缀
+                const cleaned = jsonData.replace(/^\)\]\}'\n?/, '');
+                const parsed = JSON.parse(cleaned);
+                // 尝试提取文本（位置可能变化）
+                if (Array.isArray(parsed) && parsed[0] && parsed[0][2]) {
+                    const innerData = JSON.parse(parsed[0][2]);
+                    if (innerData && innerData[4]) {
+                        text = innerData[4][0]?.[1]?.[0] || '';
+                    }
+                }
+            }
+            
+            if (text && text.trim()) {
+                messages.push({
+                    role: 'assistant',
+                    content: text.trim(),
+                    timestamp: Date.now()
+                });
+            }
+        } catch (e) {
+            console.log('[AnyChat] Gemini parsing error:', e);
+        }
+        return messages;
+    }
+
+    // ============================================================
+    // 10. 通用 SSE 消息提取器
+    // ============================================================
+    function extractGenericSSEMessages(events) {
+        const messages = [];
+        let content = '';
+        
+        for (const event of events) {
+            if (event.done) continue;
+            const data = event.data;
+            
+            // 尝试多种常见格式
+            if (data?.choices?.[0]?.delta?.content) {
+                content += data.choices[0].delta.content;
+            } else if (data?.message?.content) {
+                content += data.message.content;
+            } else if (data?.text) {
+                content += data.text;
+            } else if (data?.content) {
+                content += data.content;
+            }
+        }
+        
+        if (content && content.trim()) {
+            messages.push({
+                role: 'assistant',
+                content: content.trim(),
+                timestamp: Date.now()
+            });
+        }
+        
+        return messages;
+    }
+
+    // ============================================================
+    // 11. Fetch 拦截器（核心）
+    // ============================================================
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+        let requestBodyText = null;
+        
+        try {
+            const request = args[0];
+            const options = args[1] || {};
+            
+            if (options.body && typeof options.body === 'string') {
+                requestBodyText = options.body;
+            } else if (request instanceof Request && request.body) {
+                const clonedReq = request.clone();
+                requestBodyText = await clonedReq.text();
+            }
+        } catch (e) {}
+        
+        const response = await originalFetch.apply(this, args);
+        
+        try {
+            const url = args[0] instanceof Request ? args[0].url : String(args[0]);
+            const apiConfig = getApiConfig();
+            
+            if (apiConfig && apiConfig.pattern.test(url)) {
+                console.log('[AnyChat] Intercepted API call:', url);
+                
+                const clone = response.clone();
+                
+                (async () => {
+                    try {
+                        const contentType = clone.headers.get('content-type') || '';
+                        const isSSE = contentType.includes('text/event-stream');
+                        const isJSON = contentType.includes('application/json');
+                        
+                        console.log('[AnyChat] Response type:', contentType, 'isSSE:', isSSE, 'isJSON:', isJSON);
+                        
+                        let messages = [];
+                        
+                        if (isSSE) {
+                            const events = [];
+                            await parseSSEStream(clone.body.getReader(), (event) => {
+                                events.push(event);
+                            });
+                            console.log('[AnyChat] SSE events collected:', events.length);
+                            messages = apiConfig.extractMessages(events, requestBodyText);
+                        } else if (isJSON) {
+                            const jsonText = await clone.text();
+                            console.log('[AnyChat] JSON response length:', jsonText.length);
+                            messages = extractChatGPTHistoryMessages(jsonText);
+                        }
+                        
+                        if (messages.length > 0) {
+                            console.log('[AnyChat] Captured messages:', messages.length);
+                            await sendToBackend({
+                                serviceId: window.location.hostname,
+                                messages: messages
+                            });
+                        }
+                    } catch (err) {
+                        console.log('[AnyChat] Response processing error:', err);
+                    }
+                })();
+            }
+        } catch (err) {
+            console.log('[AnyChat] Fetch interception error:', err);
+        }
+        
+        return response;
+    };
+
+    // ============================================================
+    // 12. DOM 捕获（兜底方案）
+    // ============================================================
     const CHAT_SELECTORS = {
         'chatgpt.com': {
             container: '[data-testid="conversation-turn"]',
@@ -160,7 +572,7 @@ const AUTH_SCRIPT: &str = r#"
             content: '[class*="prose"]'
         }
     };
-    
+
     function getHostConfig() {
         const hostname = window.location.hostname;
         for (const [domain, config] of Object.entries(CHAT_SELECTORS)) {
@@ -170,12 +582,7 @@ const AUTH_SCRIPT: &str = r#"
         }
         return null;
     }
-    
-    function extractTextContent(element) {
-        if (!element) return '';
-        return element.innerText || element.textContent || '';
-    }
-    
+
     function hashString(str) {
         let hash = 0;
         for (let i = 0; i < str.length; i++) {
@@ -185,8 +592,8 @@ const AUTH_SCRIPT: &str = r#"
         }
         return hash.toString(16);
     }
-    
-    function captureMessages() {
+
+    function captureMessagesFromDOM() {
         const config = getHostConfig();
         if (!config) return;
         
@@ -200,124 +607,73 @@ const AUTH_SCRIPT: &str = r#"
             if (config.userMessage && container.querySelector(config.userMessage)) {
                 role = 'user';
                 const contentEl = container.querySelector(config.content) || container.querySelector(config.userMessage);
-                content = extractTextContent(contentEl);
+                content = contentEl?.innerText || contentEl?.textContent || '';
             } else if (config.assistantMessage && container.querySelector(config.assistantMessage)) {
                 role = 'assistant';
                 const contentEl = container.querySelector(config.content) || container.querySelector(config.assistantMessage);
-                content = extractTextContent(contentEl);
-            } else if (container.matches && container.matches(config.userMessage)) {
-                role = 'user';
-                content = extractTextContent(container.querySelector(config.content) || container);
-            } else if (container.matches && container.matches(config.assistantMessage)) {
-                role = 'assistant';
-                content = extractTextContent(container.querySelector(config.content) || container);
+                content = contentEl?.innerText || contentEl?.textContent || '';
             }
             
             if (content && content.trim().length > 0 && role !== 'unknown') {
                 const hash = hashString(content.trim());
-                if (!window.__chatBoxCapturedMessages.has(hash)) {
-                    window.__chatBoxCapturedMessages.add(hash);
+                if (!window.__anychat.capturedHashes.has(hash)) {
+                    window.__anychat.capturedHashes.add(hash);
                     messages.push({
                         role: role,
                         content: content.trim(),
                         index: index,
-                        timestamp: Date.now()
+                        timestamp: Date.now(),
+                        source: 'dom'
                     });
                 }
             }
         });
         
         if (messages.length > 0) {
-            console.log('[AnyChat] Captured', messages.length, 'new messages');
-            // Store in window for polling
-            window.__chatBoxPendingMessages = window.__chatBoxPendingMessages || [];
-            window.__chatBoxPendingMessages.push(...messages.map(m => ({
-                ...m,
-                serviceId: window.location.hostname
-            })));
-            
-            // Also try Tauri IPC if available
-            if (window.__TAURI__ && window.__TAURI__.core) {
-                window.__TAURI__.core.invoke('capture_chat_message', {
-                    serviceId: window.location.hostname,
-                    messages: messages
-                }).catch(err => {
-                    console.log('[AnyChat] IPC failed (expected in child webview):', err);
-                });
-            }
+            console.log('[AnyChat] DOM captured', messages.length, 'messages (fallback)');
+            sendToBackend({
+                serviceId: window.location.hostname,
+                messages: messages
+            });
         }
     }
-    
-    function setupChatObserver() {
+
+    // DOM Observer 作为兜底
+    function setupDOMFallback() {
         const config = getHostConfig();
         if (!config) {
-            console.log('[AnyChat] No chat config for this site');
+            console.log('[AnyChat] No DOM config for this site');
             return;
         }
         
-        console.log('[AnyChat] Setting up chat observer for', window.location.hostname);
+        // 如果 API 拦截工作正常，减少 DOM 捕获频率
+        let domCaptureInterval = 10000; // 默认 10 秒检查一次
         
-        const observer = new MutationObserver((mutations) => {
-            let shouldCapture = false;
-            for (const mutation of mutations) {
-                if (mutation.addedNodes.length > 0 || mutation.type === 'characterData') {
-                    shouldCapture = true;
-                    break;
-                }
-            }
-            if (shouldCapture) {
-                setTimeout(captureMessages, 500);
+        const observer = new MutationObserver(() => {
+            // 仅在没有 API 捕获时触发 DOM 捕获
+            if (!window.__anychat.ipcAvailable) {
+                setTimeout(captureMessagesFromDOM, 1000);
             }
         });
         
         observer.observe(document.body, {
             childList: true,
-            subtree: true,
-            characterData: true
+            subtree: true
         });
         
-        setTimeout(captureMessages, 2000);
+        // 初始捕获
+        setTimeout(captureMessagesFromDOM, 3000);
         
-        console.log('[AnyChat] Chat observer started');
+        console.log('[AnyChat] DOM fallback observer started');
     }
-    
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', setupChatObserver);
+        document.addEventListener('DOMContentLoaded', setupDOMFallback);
     } else {
-        setTimeout(setupChatObserver, 1000);
+        setTimeout(setupDOMFallback, 1000);
     }
-    
-    function flushPendingMessages() {
-        if (!window.__chatBoxPendingMessages || window.__chatBoxPendingMessages.length === 0) return;
-        
-        const messages = window.__chatBoxPendingMessages.splice(0);
-        const payload = JSON.stringify({
-            type: 'chatbox_capture',
-            serviceId: window.location.hostname,
-            url: window.location.href,
-            messages: messages
-        });
-        
-        fetch('http://127.0.0.1:33445/capture', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: payload
-        }).then(response => {
-            if (response.ok) {
-                console.log('[AnyChat] Sent', messages.length, 'messages via HTTP');
-            } else {
-                window.__chatBoxPendingMessages.unshift(...messages);
-                console.log('[AnyChat] Failed to send, messages re-queued');
-            }
-        }).catch(err => {
-            window.__chatBoxPendingMessages.unshift(...messages);
-            console.log('[AnyChat] Fetch error, messages re-queued:', err);
-        });
-    }
-    
-    setInterval(flushPendingMessages, 3000);
-    
-    console.log('[AnyChat] Auth script initialized');
+
+    console.log('[AnyChat] Data capture script initialized (Fetch interception + DOM fallback)');
 })();
 "#;
 
@@ -434,6 +790,12 @@ fn create_webview_for_service(
 
     println!("[AnyChat] Created webview: {} -> {}", label, url);
 
+    #[cfg(debug_assertions)]
+    if let Some(webview) = app.get_webview(label) {
+        let _ = webview.open_devtools();
+        println!("[AnyChat] DevTools opened for webview: {}", label);
+    }
+
     Ok(())
 }
 
@@ -517,10 +879,17 @@ fn hide_all_webviews(app: tauri::AppHandle) -> Result<(), String> {
 struct CapturedMessage {
     role: String,
     content: String,
+    #[serde(default)]
     #[allow(dead_code)]
-    index: i32,
+    index: Option<i32>,
+    #[serde(default)]
     #[allow(dead_code)]
-    timestamp: i64,
+    timestamp: Option<i64>,
+    #[serde(rename = "externalId")]
+    #[serde(default)]
+    external_id: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -556,9 +925,15 @@ async fn capture_chat_message(
     
     if let Ok(app_data_dir) = std::env::var("HOME") {
         let log_path = format!(
-            "{}/Library/Application Support/com.sunss.chat-box-app/captured_chats.jsonl",
+            "{}/Library/Application Support/com.anychat.app/captured_chats.jsonl",
             app_data_dir
         );
+        
+        let dir_path = format!(
+            "{}/Library/Application Support/com.anychat.app",
+            app_data_dir
+        );
+        let _ = std::fs::create_dir_all(&dir_path);
         
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
@@ -571,6 +946,8 @@ async fn capture_chat_message(
                     "service_id": service_id,
                     "role": msg.role,
                     "content": msg.content,
+                    "external_id": msg.external_id,
+                    "source": msg.source.unwrap_or_else(|| "api".to_string()),
                     "captured_at": chrono::Utc::now().to_rfc3339()
                 });
                 let _ = writeln!(file, "{}", entry.to_string());
@@ -598,6 +975,85 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .register_uri_scheme_protocol("anychat", |_ctx, request| {
+            let path = request.uri().path();
+            
+            if path == "/capture" {
+                let body = request.body();
+                
+                match serde_json::from_slice::<CapturePayload>(body) {
+                    Ok(payload) => {
+                        println!(
+                            "[AnyChat] Protocol received: service={}, messages={}",
+                            payload.service_id,
+                            payload.messages.len()
+                        );
+                        
+                        for msg in &payload.messages {
+                            println!(
+                                "[AnyChat] Message: [{}] {}...",
+                                msg.role,
+                                msg.content.chars().take(50).collect::<String>()
+                            );
+                        }
+                        
+                        if let Ok(home_dir) = std::env::var("HOME") {
+                            let dir_path = format!(
+                                "{}/Library/Application Support/com.anychat.app",
+                                home_dir
+                            );
+                            let _ = std::fs::create_dir_all(&dir_path);
+                            
+                            let log_path = format!(
+                                "{}/Library/Application Support/com.anychat.app/captured_chats.jsonl",
+                                home_dir
+                            );
+                            
+                            if let Ok(mut file) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(&log_path)
+                            {
+                                use std::io::Write;
+                                for msg in &payload.messages {
+                                    let entry = serde_json::json!({
+                                        "service_id": payload.service_id,
+                                        "url": payload.url,
+                                        "role": msg.role,
+                                        "content": msg.content,
+                                        "external_id": msg.external_id,
+                                        "source": msg.source.clone().unwrap_or_else(|| "protocol".to_string()),
+                                        "captured_at": chrono::Utc::now().to_rfc3339()
+                                    });
+                                    let _ = writeln!(file, "{}", entry.to_string());
+                                }
+                                println!("[AnyChat] Saved {} messages to JSONL", payload.messages.len());
+                            }
+                        }
+                        
+                        http::Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/json")
+                            .header("Access-Control-Allow-Origin", "*")
+                            .body(r#"{"status":"ok"}"#.as_bytes().to_vec())
+                            .unwrap()
+                    }
+                    Err(e) => {
+                        println!("[AnyChat] Protocol parse error: {}", e);
+                        http::Response::builder()
+                            .status(400)
+                            .header("Content-Type", "application/json")
+                            .body(format!(r#"{{"error":"{}"}}"#, e).into_bytes())
+                            .unwrap()
+                    }
+                }
+            } else {
+                http::Response::builder()
+                    .status(404)
+                    .body("Not Found".as_bytes().to_vec())
+                    .unwrap()
+            }
+        })
         .manage(AppState {
             created_webviews: Mutex::new(HashSet::new()),
             setup_complete: Mutex::new(false),
@@ -613,8 +1069,54 @@ pub fn run() {
                     
                     let cors = warp::cors()
                         .allow_any_origin()
-                        .allow_methods(vec!["POST", "OPTIONS"])
+                        .allow_methods(vec!["GET", "POST", "OPTIONS"])
                         .allow_headers(vec!["Content-Type"]);
+                    
+                    let beacon_route = warp::get()
+                        .and(warp::path("beacon"))
+                        .and(warp::query::<std::collections::HashMap<String, String>>())
+                        .map(|params: std::collections::HashMap<String, String>| {
+                            if let Some(data) = params.get("d") {
+                                if let Ok(decoded) = urlencoding::decode(data) {
+                                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&decoded) {
+                                        let service_id = payload.get("s").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                        let role = payload.get("r").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                        let content = payload.get("c").and_then(|v| v.as_str()).unwrap_or("");
+                                        
+                                        println!("[AnyChat] Beacon: [{}] {}...", role, content.chars().take(50).collect::<String>());
+                                        
+                                        if let Ok(home_dir) = std::env::var("HOME") {
+                                            let dir_path = format!("{}/Library/Application Support/com.anychat.app", home_dir);
+                                            let _ = std::fs::create_dir_all(&dir_path);
+                                            let log_path = format!("{}/captured_chats.jsonl", dir_path);
+                                            
+                                            if let Ok(mut file) = std::fs::OpenOptions::new()
+                                                .create(true)
+                                                .append(true)
+                                                .open(&log_path)
+                                            {
+                                                use std::io::Write;
+                                                let entry = serde_json::json!({
+                                                    "service_id": service_id,
+                                                    "role": role,
+                                                    "content": content,
+                                                    "source": "beacon",
+                                                    "captured_at": chrono::Utc::now().to_rfc3339()
+                                                });
+                                                let _ = writeln!(file, "{}", entry.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            let gif_1x1: Vec<u8> = vec![0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b];
+                            warp::reply::with_header(
+                                warp::reply::with_status(gif_1x1, warp::http::StatusCode::OK),
+                                "Content-Type",
+                                "image/gif"
+                            )
+                        });
                     
                     let capture_route = warp::post()
                         .and(warp::path("capture"))
@@ -643,8 +1145,14 @@ pub fn run() {
                             );
                             
                             if let Ok(home_dir) = std::env::var("HOME") {
+                                let dir_path = format!(
+                                    "{}/Library/Application Support/com.anychat.app",
+                                    home_dir
+                                );
+                                let _ = std::fs::create_dir_all(&dir_path);
+                                
                                 let log_path = format!(
-                                    "{}/Library/Application Support/com.sunss.chat-box-app/captured_chats.jsonl",
+                                    "{}/Library/Application Support/com.anychat.app/captured_chats.jsonl",
                                     home_dir
                                 );
                                 
@@ -660,6 +1168,8 @@ pub fn run() {
                                             "url": payload.url,
                                             "role": msg.role,
                                             "content": msg.content,
+                                            "external_id": msg.external_id,
+                                            "source": msg.source.clone().unwrap_or_else(|| "http".to_string()),
                                             "captured_at": chrono::Utc::now().to_rfc3339()
                                         });
                                         let _ = writeln!(file, "{}", entry.to_string());
@@ -669,13 +1179,59 @@ pub fn run() {
                             
                             warp::reply::json(&serde_json::json!({"status": "ok"}))
                         })
-                        .with(cors);
+                        .with(cors.clone());
+                    
+                    let routes = beacon_route.or(capture_route);
                     
                     println!("[AnyChat] Starting HTTP server on 127.0.0.1:33445");
-                    warp::serve(capture_route)
+                    warp::serve(routes)
                         .run(([127, 0, 0, 1], 33445))
                         .await;
                 });
+            });
+            
+            let app_handle_for_polling = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                println!("[AnyChat] Queue polling started");
+                
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    
+                    let state = app_handle_for_polling.state::<AppState>();
+                    let created = state.created_webviews.lock().unwrap().clone();
+                    drop(state);
+                    
+                    for label in created.iter() {
+                        if let Some(webview) = app_handle_for_polling.get_webview(label) {
+                            let js_code = r#"
+                                (function() {
+                                    if (!window.__anychatQueue || window.__anychatQueue.length === 0) {
+                                        return;
+                                    }
+                                    const entries = window.__anychatQueue;
+                                    window.__anychatQueue = [];
+                                    
+                                    entries.forEach(entry => {
+                                        entry.messages.forEach(msg => {
+                                            const payload = {
+                                                s: entry.serviceId,
+                                                r: msg.role,
+                                                c: msg.content.substring(0, 1500),
+                                                t: Date.now()
+                                            };
+                                            const encoded = encodeURIComponent(JSON.stringify(payload));
+                                            const img = new Image();
+                                            img.src = 'http://127.0.0.1:33445/beacon?d=' + encoded;
+                                        });
+                                    });
+                                    console.log('[AnyChat] Sent', entries.length, 'entries via beacon');
+                                })();
+                            "#;
+                            let _ = webview.eval(js_code);
+                        }
+                    }
+                }
             });
             
             let main_webview_window = match WebviewWindowBuilder::new(
@@ -769,6 +1325,12 @@ pub fn run() {
                 {
                     let mut created = state.created_webviews.lock().unwrap();
                     created.insert(label.to_string());
+                }
+
+                #[cfg(debug_assertions)]
+                if index == 0 {
+                    let _ = webview.open_devtools();
+                    println!("[AnyChat] DevTools opened for initial webview: {}", label);
                 }
 
                 if index != 0 {

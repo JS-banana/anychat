@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   content TEXT NOT NULL,
   content_hash TEXT,
   source TEXT DEFAULT 'auto',
+  external_id TEXT,
+  meta TEXT,
   created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 
@@ -43,6 +45,13 @@ CREATE INDEX IF NOT EXISTS idx_sessions_updated ON chat_sessions(updated_at DESC
 CREATE INDEX IF NOT EXISTS idx_messages_session ON chat_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created ON chat_messages(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_hash ON chat_messages(content_hash);
+CREATE INDEX IF NOT EXISTS idx_messages_external ON chat_messages(external_id);
+`;
+
+const MIGRATION_SQL = `
+ALTER TABLE chat_messages ADD COLUMN external_id TEXT;
+ALTER TABLE chat_messages ADD COLUMN meta TEXT;
+CREATE INDEX IF NOT EXISTS idx_messages_external ON chat_messages(external_id);
 `;
 
 const DEFAULT_PROVIDERS_SQL = `
@@ -78,6 +87,8 @@ export interface ChatMessage {
   content: string;
   content_hash: string | null;
   source: string;
+  external_id: string | null;
+  meta: string | null;
   created_at: number;
 }
 
@@ -88,6 +99,14 @@ export async function initDatabase(): Promise<Database> {
 
   await db.execute(INIT_SQL);
   await db.execute(DEFAULT_PROVIDERS_SQL);
+
+  try {
+    for (const stmt of MIGRATION_SQL.split(';').filter((s) => s.trim())) {
+      await db.execute(stmt);
+    }
+  } catch {
+    // Migration columns may already exist
+  }
 
   return db;
 }
