@@ -1,254 +1,59 @@
-# AnyChat - 多 AI 聊天聚合应用
+<p align="center">
+  <img src="https://raw.githubusercontent.com/tw93/Pake/master/screenshot/logo.png" width="80" height="80" alt="AnyChat Logo">
+</p>
 
-一个基于 Tauri 2.0 的桌面应用，可以在一个窗口中统一管理多个 AI Chat 服务（ChatGPT、Gemini、Claude 等），并自动备份聊天记录到本地。
+<h1 align="center">AnyChat</h1>
 
-## 功能特性
+<p align="center">
+  <strong>基于 Tauri 2.0 的多 AI Chat 聚合桌面客户端</strong>
+</p>
 
-### 已完成功能
+<p align="center">
+  <a href="https://github.com/tauri-apps/tauri"><img src="https://img.shields.io/badge/Tauri-2.0-blue?logo=tauri" alt="Tauri 2.0"></a>
+  <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19-blue?logo=react" alt="React 19"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-1.70+-orange?logo=rust" alt="Rust 1.70+"></a>
+  <img src="https://img.shields.io/badge/Platform-macOS-lightgrey?logo=apple" alt="Platform macOS">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License MIT">
+</p>
 
-| 功能                | 描述                                                    |
-| ------------------- | ------------------------------------------------------- |
-| **多服务管理**      | 在一个应用中切换 ChatGPT、Gemini、Claude 等 12+ AI 服务 |
-| **左侧导航栏**      | 显示服务图标，点击快速切换                              |
-| **键盘快捷键**      | `Cmd+1`, `Cmd+2`... 快速切换服务                        |
-| **添加自定义服务**  | 支持添加任意 AI Chat 网站                               |
-| **服务启用/禁用**   | 灵活控制显示哪些服务                                    |
-| **SQLite 本地存储** | 聊天数据持久化到本地数据库                              |
-| **聊天历史管理**    | 查看、搜索、删除历史会话                                |
-| **全文搜索**        | 在所有消息中搜索关键词                                  |
-| **ChatGPT 导入**    | 支持导入 ChatGPT 官方导出的 JSON 文件                   |
-| **数据导出**        | 导出所有数据为 JSON 格式                                |
-| **深色模式**        | 默认深色主题                                            |
+AnyChat 是一个聚合了多个 AI 聊天服务的桌面应用，旨在提供统一的入口和本地化数据存储。它不仅让你能在一个窗口中无缝切换不同的 AI，还能将你的聊天记录自动备份到本地 SQLite 数据库，实现数据的完全可控。
 
-### 预置服务
+## ✨ 核心特性
 
-| 服务       | 状态     |
-| ---------- | -------- |
-| ChatGPT    | 默认启用 |
-| Gemini     | 默认启用 |
-| Claude     | 默认启用 |
-| Grok       | 默认隐藏 |
-| Copilot    | 默认隐藏 |
-| Perplexity | 默认隐藏 |
-| Poe        | 默认隐藏 |
-| DeepSeek   | 默认隐藏 |
-| 通义千问   | 默认隐藏 |
-| Kimi       | 默认隐藏 |
-| 豆包       | 默认隐藏 |
-| 智谱清言   | 默认隐藏 |
+- **🚀 多服务聚合**: 统一管理 ChatGPT, Gemini, Claude 等 12+ 种主流 AI 服务。
+- **⌨️ 效率优先**: 支持快捷键快速切换服务，极简的 UI 设计。
+- **💾 本地存储**: 所有聊天记录持久化至本地 SQLite，支持全文搜索。
+- **📤 导入导出**: 支持 ChatGPT 官方数据导入，以及全量数据导出。
+- **🔒 私有可控**: 数据不出本地，隐私第一。
 
-### 待完成功能
+## 🌿 分支策略
 
-| 功能         | 优先级 | 描述                                                    |
-| ------------ | ------ | ------------------------------------------------------- |
-| 自动数据捕获 | P0     | 通过 DOM MutationObserver 自动捕获 WebView 中的聊天内容 |
-| 自动备份     | P1     | 定时（每小时）自动备份数据库                            |
-| 系统托盘     | P2     | 最小化到系统托盘                                        |
-| Gemini 导入  | P2     | 支持导入 Gemini 导出格式                                |
-| 拖拽排序     | P2     | 拖拽调整服务顺序                                        |
-| 浅色模式切换 | P3     | 支持切换浅色/深色主题                                   |
+本项目采用多方案并行的策略进行核心功能（数据捕获）的研发：
 
-## 技术栈
+- **`main`**: 稳定生产分支，包含已验证的 UI 和核心管理逻辑。
+- **`tauri`**: Tauri 方案开发分支，专注于通过 MITM 代理绕过 CSP 限制实现数据捕获。
+- **`electron`**: Electron 方案探索分支，利用成熟的 Webview API 作为 Tauri 的后备方案。
 
-```yaml
-应用框架: Tauri 2.0
-前端框架: React 19 + TypeScript
-构建工具: Vite
-样式方案: Tailwind CSS 3 + shadcn/ui
-图标库: Lucide React
-动画库: Framer Motion
-状态管理: Zustand (持久化)
-数据存储: SQLite (@tauri-apps/plugin-sql)
-测试框架: Vitest
-代码格式化: Prettier
-```
+## 🛠️ 技术栈
 
-## 开发环境要求
+- **框架**: Tauri 2.0, React 19, TypeScript
+- **样式**: Tailwind CSS, shadcn/ui
+- **存储**: SQLite (@tauri-apps/plugin-sql)
+- **状态**: Zustand
 
-- **Node.js** >= 18
-- **pnpm** >= 8
-- **Rust** >= 1.70
-- **macOS** (当前仅支持 macOS 开发和运行)
-
-## 快速开始
-
-### 1. 安装依赖
+## 🏁 快速开始
 
 ```bash
+# 安装依赖
 pnpm install
-```
 
-### 2. 开发模式
-
-```bash
+# 启动开发环境
 pnpm tauri dev
-```
-
-> 首次运行需要编译 Rust 依赖，可能需要 5-10 分钟，请耐心等待。
-
-### 3. 构建生产版本
-
-```bash
-pnpm tauri build
-```
-
-构建产物位于 `src-tauri/target/release/bundle/`
-
-## 开发命令
-
-```bash
-# 开发模式
-pnpm tauri dev
-
-# 仅构建前端
-pnpm build
-
-# 类型检查
-pnpm lint
-
-# 代码格式化
-pnpm format
-
-# 运行测试
-pnpm test
-
-# 测试覆盖率
-pnpm test:coverage
 
 # 构建生产版本
 pnpm tauri build
 ```
 
-## 使用说明
+---
 
-### 基本操作
-
-| 操作           | 方式                                     |
-| -------------- | ---------------------------------------- |
-| 切换 AI 服务   | 点击左侧图标，或使用 `Cmd+1`, `Cmd+2`... |
-| 添加新服务     | 点击左侧 `+` 按钮                        |
-| 查看聊天历史   | 点击左下角时钟图标                       |
-| 打开设置       | 点击左下角齿轮图标                       |
-| 刷新当前页面   | 点击右上角刷新按钮                       |
-| 在浏览器中打开 | 点击右上角外部链接按钮                   |
-
-### 导入 ChatGPT 数据
-
-1. 在 ChatGPT 官网导出你的数据（Settings → Data Controls → Export）
-2. 打开 AnyChat 设置 → 点击 "Import ChatGPT"
-3. 选择下载的 `conversations.json` 文件
-4. 导入完成后可在聊天历史中查看
-
-### 导出数据
-
-1. 打开设置 → 点击 "Export All"
-2. 选择保存位置
-3. 数据将以 JSON 格式导出
-
-## 项目结构
-
-```
-anychat/
-├── src/                          # React 前端
-│   ├── components/
-│   │   ├── ui/                   # shadcn/ui 组件
-│   │   ├── AddServiceDialog.tsx  # 添加服务对话框
-│   │   ├── AppLayout.tsx         # 主布局
-│   │   ├── ChatHistoryPanel.tsx  # 聊天历史面板
-│   │   ├── SettingsDialog.tsx    # 设置对话框
-│   │   ├── Sidebar.tsx           # 左侧导航栏
-│   │   └── WebViewContainer.tsx  # WebView 容器
-│   ├── hooks/
-│   │   └── useKeyboardShortcuts.ts
-│   ├── lib/
-│   │   ├── icon.ts               # 图标工具
-│   │   └── utils.ts
-│   ├── services/
-│   │   ├── database.ts           # SQLite 数据库服务
-│   │   └── import-export.ts      # 导入导出功能
-│   ├── stores/
-│   │   └── app-store.ts          # Zustand 状态管理
-│   ├── types/
-│   │   └── index.ts              # 类型定义 + 预置服务
-│   ├── App.tsx
-│   ├── main.tsx
-│   └── index.css                 # Tailwind + CSS 变量
-│
-├── src-tauri/                    # Rust 后端
-│   ├── src/
-│   │   ├── lib.rs                # 核心逻辑
-│   │   └── main.rs               # 入口
-│   ├── capabilities/
-│   │   └── default.json          # 权限配置
-│   ├── Cargo.toml
-│   └── tauri.conf.json           # Tauri 配置
-│
-├── tests/                        # 测试文件
-│   ├── setup.ts                  # 测试初始化
-│   └── unit/                     # 单元测试
-│       ├── app-store.test.ts
-│       └── icon.test.ts
-│
-├── .sisyphus/plans/              # 开发计划文档
-├── docs/                         # 调研报告
-├── AGENTS.md                     # AI 辅助开发指南
-└── README.md                     # 本文件
-```
-
-## 数据库结构
-
-数据存储在 `~/Library/Application Support/com.anychat.app/`
-
-```sql
-CREATE TABLE providers (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  url TEXT NOT NULL,
-  icon TEXT,
-  enabled INTEGER DEFAULT 1,
-  sort_order INTEGER DEFAULT 0,
-  selector_config TEXT,
-  created_at INTEGER
-);
-
-CREATE TABLE chat_sessions (
-  id TEXT PRIMARY KEY,
-  provider_id TEXT REFERENCES providers(id),
-  title TEXT NOT NULL,
-  message_count INTEGER DEFAULT 0,
-  created_at INTEGER,
-  updated_at INTEGER
-);
-
-CREATE TABLE chat_messages (
-  id TEXT PRIMARY KEY,
-  session_id TEXT REFERENCES chat_sessions(id),
-  role TEXT CHECK (role IN ('user', 'assistant', 'system')),
-  content TEXT NOT NULL,
-  content_hash TEXT,
-  source TEXT DEFAULT 'auto',
-  created_at INTEGER
-);
-```
-
-## 常见问题
-
-### Q: 首次运行很慢？
-
-A: 首次运行需要编译 Rust 依赖，这是正常的。后续运行会使用缓存，启动速度会很快。
-
-### Q: WebView 中无法登录 AI 服务？
-
-A: 由于安全限制，某些 AI 服务可能会检测到非标准浏览器环境。这是 Tauri WebView 的已知限制。
-
-### Q: 如何添加其他 AI 服务？
-
-A: 点击左侧 `+` 按钮，输入服务名称和 URL 即可。
-
-### Q: 数据存储在哪里？
-
-A: macOS 上数据存储在 `~/Library/Application Support/com.anychat.app/` 目录下。
-
-## 许可证
-
-MIT
+_详细信息请参阅 [AGENTS.md](./AGENTS.md) 或 [文档索引](./docs/README.md)_
