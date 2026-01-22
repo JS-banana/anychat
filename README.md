@@ -31,8 +31,8 @@ AnyChat 是一个聚合了多个 AI 聊天服务的桌面应用，旨在提供�
 本项目采用多方案并行的策略进行核心功能（数据捕获）的研发：
 
 - **`main`**: 稳定生产分支，包含已验证的 UI 和核心管理逻辑。
-- **`tauri`**: Tauri 方案开发分支，专注于通过 MITM 代理绕过 CSP 限制实现数据捕获。
-- **`electron`**: Electron 方案探索分支，利用成熟的 Webview API 作为 Tauri 的后备方案。
+- **`tauri`**: 技术攻关分支，专注于通过 MITM 代理绕过 CSP 限制实现数据捕获。
+- **`electron`**: 备选方案分支，利用成熟的 Webview API 作为 Tauri 的后备方案。
 
 ## 🛠️ 技术栈
 
@@ -43,14 +43,18 @@ AnyChat 是一个聚合了多个 AI 聊天服务的桌面应用，旨在提供�
 
 ## 🏁 快速开始
 
+### 1. 安装依赖
 ```bash
-# 安装依赖
 pnpm install
+```
 
-# 启动开发环境
+### 2. 开发模式
+```bash
 pnpm tauri dev
+```
 
-# 构建生产版本
+### 3. 构建生产版本
+```bash
 pnpm tauri build
 ```
 

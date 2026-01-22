@@ -1,32 +1,32 @@
-# AnyChat (Electron Exploration)
+# AnyChat (Primary Development - Tauri)
 
-本分支用于管理和维护基于 **Electron** 的多 AI Chat 聚合方案。
+这是 AnyChat 的主分支，采用 Tauri 架构，旨在提供高性能、低占用的多 AI 聊天聚合体验。
 
-## 分支定位
+## 分支说明
 
-- **状态**: ⏸️ 待命 (Standby)
-- **目标**: 作为 Tauri 方案的备选方案。若 Tauri 的 MITM 代理方案无法解决 CSP 限制，将切换至此分支进行开发。
+- **main**: 稳定/主开发分支。目前专注基于 Tauri 的聚合体验与核心功能维护。
+- **tauri**: 技术攻关分支。专注通过 MITM 代理攻克数据捕获（CSP 绕过）难题。
+- **electron**: 备选分支。存放 Electron 方案的研究报告和实验性代码，作为 Plan B 待命。
 
-## 方案原理 (Plan B)
+## 当前开发重点
 
-使用 Electron 的成熟架构解决外部站点数据捕获问题：
+1. **多 Webview 聚合体验**: 优化服务切换、窗口管理和快捷键。
+2. **数据沉淀架构**: 维护本地 SQLite 数据库，整合各分支的研究成果。
+3. **性能优化**: 保持极低的内存占用和安装包体积。
 
-- **核心组件**: 使用 `<webview>` 标签承载 AI 站点。
-- **数据注入**: 通过 `preload` 脚本注入拦截逻辑。
-- **CSP 绕过**: 利用 `session.webRequest.onHeadersReceived` 动态剥离 `Content-Security-Policy` 响应头。
-- **数据传输**: 使用 `ipcRenderer.sendToHost()` 将捕获的聊天数据传回主进程或宿主页面。
+## 关键文件
 
-## 主要参考资料
+- `src/App.tsx`: 前端入口与路由逻辑
+- `src/stores/app-store.ts`: 全局状态管理
+- `src/components/WebViewContainer.tsx`: 核心 WebView 容器
+- `src-tauri/src/lib.rs`: Rust 后端核心
+- `src/services/database.ts`: 本地 SQLite 服务
 
-- [Ferdium](https://github.com/ferdium/ferdium-app) - 成熟的 Electron 多服务聚合器实现参考
-- [Electron webview tag](https://www.electronjs.org/docs/latest/api/webview-tag) - 官方文档
-- [Electron session API](https://www.electronjs.org/docs/latest/api/session) - 网络请求控制
+## 相关文档
 
-## 关键文档索引
-
-- 技术调研: `docs/research/003-plan-b-electron.md` (或同类路径)
-- 历史研究报告: `docs/research/data-capture-implementation-report.md`
+- [技术路线图](.sisyphus/plans/)
+- [数据捕获方案调研报告](docs/research/data-capture-implementation-report.md)
+- [Gemini 研究报告](docs/research/2026-01-20 研究报告gemini.md)
 
 ---
-
 _详细信息请参阅文档索引中的具体文档_
