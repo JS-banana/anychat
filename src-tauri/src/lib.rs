@@ -1367,9 +1367,9 @@ pub fn run() {
                 *setup_complete = true;
             }
 
-            let show_item = MenuItemBuilder::with_id("show", "Show Window").build(app)?;
-            let hide_item = MenuItemBuilder::with_id("hide", "Hide Window").build(app)?;
-            let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+            let show_item = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
+            let hide_item = MenuItemBuilder::with_id("hide", "隐藏窗口").build(app)?;
+            let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
 
             let tray_menu = MenuBuilder::new(app)
                 .items(&[&show_item, &hide_item, &quit_item])
@@ -1416,6 +1416,20 @@ pub fn run() {
             hide_all_webviews,
             capture_chat_message
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let is_visible = window.is_visible().unwrap_or(false);
+                    let is_minimized = window.is_minimized().unwrap_or(false);
+                    if !is_visible || is_minimized {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        });
 }
