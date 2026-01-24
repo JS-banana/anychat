@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/tw93/Pake/master/screenshot/logo.png" width="80" height="80" alt="AnyChat Logo">
+  <img src="https://raw.githubusercontent.com/js-banana/anychat/main/logo.png" width="80" height="80" alt="AnyChat Logo">
 </p>
 
 <h1 align="center">AnyChat</h1>
@@ -44,16 +44,19 @@ AnyChat 是一个聚合了多个 AI 聊天服务的桌面应用，旨在提供�
 ## 🏁 快速开始
 
 ### 1. 安装依赖
+
 ```bash
 pnpm install
 ```
 
 ### 2. 开发模式
+
 ```bash
 pnpm tauri dev
 ```
 
 ### 3. 构建生产版本
+
 ```bash
 pnpm tauri build
 ```
