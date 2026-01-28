@@ -106,7 +106,7 @@ export function AppLayout() {
       {settingsPageOpen ? <SettingsPage /> : <WebViewContainer />}
       <AddServiceDialog />
       {!dbReady && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80">
+        <div className="pointer-events-none fixed inset-y-0 left-16 right-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-muted-foreground">Initializing...</div>
         </div>
       )}
