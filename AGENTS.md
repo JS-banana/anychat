@@ -27,6 +27,7 @@
 - [技术路线图](.sisyphus/plans/)
 - [数据捕获方案调研报告](docs/research/data-capture-implementation-report.md)
 - [Gemini 研究报告](docs/research/2026-01-20 研究报告gemini.md)
+- [任务跟踪记录](docs/plans/2026-01-28-anychat-triage.md)
 
 ---
 _详细信息请参阅文档索引中的具体文档_
