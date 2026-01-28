@@ -2,8 +2,8 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -54,19 +54,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Read version
-        id: version
-        run: |
-          node -e "const fs=require('fs');const conf=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));console.log(`version=${conf.version}`)" >> $GITHUB_OUTPUT
-
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: main-${{ steps.version.outputs.version }}-${{ github.run_number }}
-          releaseName: AnyChat main-${{ steps.version.outputs.version }} (${{ github.run_number }})
+          tagName: ${{ github.ref_name }}
+          releaseName: AnyChat ${{ github.ref_name }}
           releaseBody: |
-            Automated build from main branch.
+            Automated build from tag ${{ github.ref_name }}.
           releaseDraft: false
-          prerelease: true
+          prerelease: false
