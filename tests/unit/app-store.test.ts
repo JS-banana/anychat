@@ -7,9 +7,9 @@ describe('AppStore', () => {
     useAppStore.setState({
       services: [...DEFAULT_SERVICES],
       activeServiceId: DEFAULT_SERVICES.find((s) => s.enabled)?.id ?? null,
-      settingsOpen: false,
+      settingsPageOpen: false,
+      settingsActiveTab: 'services',
       addServiceDialogOpen: false,
-      chatHistoryOpen: false,
     });
   });
 
@@ -157,14 +157,14 @@ describe('AppStore', () => {
   });
 
   describe('dialog states', () => {
-    it('should toggle settings dialog', () => {
-      const { setSettingsOpen } = useAppStore.getState();
+    it('should toggle settings page', () => {
+      const { setSettingsPageOpen } = useAppStore.getState();
 
-      setSettingsOpen(true);
-      expect(useAppStore.getState().settingsOpen).toBe(true);
+      setSettingsPageOpen(true);
+      expect(useAppStore.getState().settingsPageOpen).toBe(true);
 
-      setSettingsOpen(false);
-      expect(useAppStore.getState().settingsOpen).toBe(false);
+      setSettingsPageOpen(false);
+      expect(useAppStore.getState().settingsPageOpen).toBe(false);
     });
 
     it('should toggle add service dialog', () => {
@@ -177,14 +177,14 @@ describe('AppStore', () => {
       expect(useAppStore.getState().addServiceDialogOpen).toBe(false);
     });
 
-    it('should toggle chat history panel', () => {
-      const { setChatHistoryOpen } = useAppStore.getState();
+    it('should set settings active tab', () => {
+      const { setSettingsActiveTab } = useAppStore.getState();
 
-      setChatHistoryOpen(true);
-      expect(useAppStore.getState().chatHistoryOpen).toBe(true);
+      setSettingsActiveTab('data');
+      expect(useAppStore.getState().settingsActiveTab).toBe('data');
 
-      setChatHistoryOpen(false);
-      expect(useAppStore.getState().chatHistoryOpen).toBe(false);
+      setSettingsActiveTab('about');
+      expect(useAppStore.getState().settingsActiveTab).toBe('about');
     });
   });
 });
