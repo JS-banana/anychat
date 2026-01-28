@@ -1,6 +1,7 @@
 import Database from '@tauri-apps/plugin-sql';
 
 let db: Database | null = null;
+let dbInitPromise: Promise<Database> | null = null;
 
 const INIT_SQL = `
 CREATE TABLE IF NOT EXISTS providers (
@@ -95,20 +96,33 @@ export interface ChatMessage {
 export async function initDatabase(): Promise<Database> {
   if (db) return db;
 
-  db = await Database.load('sqlite:chatbox.db');
+  // React StrictMode(dev) may run effects twice, so guard concurrent initialization.
+  if (dbInitPromise) return dbInitPromise;
 
-  await db.execute(INIT_SQL);
-  await db.execute(DEFAULT_PROVIDERS_SQL);
+  dbInitPromise = (async () => {
+    const loaded = await Database.load('sqlite:chatbox.db');
+
+    await loaded.execute(INIT_SQL);
+    await loaded.execute(DEFAULT_PROVIDERS_SQL);
+
+    try {
+      for (const stmt of MIGRATION_SQL.split(';').filter((s) => s.trim())) {
+        await loaded.execute(stmt);
+      }
+    } catch {
+      // Migration columns may already exist
+    }
+
+    db = loaded;
+    return loaded;
+  })();
 
   try {
-    for (const stmt of MIGRATION_SQL.split(';').filter((s) => s.trim())) {
-      await db.execute(stmt);
-    }
-  } catch {
-    // Migration columns may already exist
+    return await dbInitPromise;
+  } finally {
+    // Keep db cached; allow retry on failure.
+    if (!db) dbInitPromise = null;
   }
-
-  return db;
 }
 
 export async function getDatabase(): Promise<Database> {
