@@ -732,6 +732,25 @@ fn is_auth_url(url: &str) -> bool {
     false
 }
 
+fn should_allow_new_window(url: &str) -> bool {
+    !is_auth_url(url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_allow_new_window;
+
+    #[test]
+    fn denies_new_window_for_auth_domains() {
+        assert!(!should_allow_new_window("https://accounts.google.com/o/oauth2/v2/auth"));
+    }
+
+    #[test]
+    fn allows_new_window_for_non_auth_domains() {
+        assert!(should_allow_new_window("https://example.com"));
+    }
+}
+
 fn show_main_window(app_handle: &tauri::AppHandle) {
     match app_handle.get_webview_window("main") {
         Some(w) => {
@@ -938,7 +957,11 @@ fn create_webview_for_service(
                 .build();
             }
 
-            tauri::webview::NewWindowResponse::Allow
+            if should_allow_new_window(url.as_str()) {
+                tauri::webview::NewWindowResponse::Allow
+            } else {
+                tauri::webview::NewWindowResponse::Deny
+            }
         });
 
     println!("[AnyChat] create_webview_for_service: calling add_child");
