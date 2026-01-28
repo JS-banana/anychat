@@ -46,14 +46,30 @@ CREATE INDEX IF NOT EXISTS idx_sessions_updated ON chat_sessions(updated_at DESC
 CREATE INDEX IF NOT EXISTS idx_messages_session ON chat_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created ON chat_messages(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_hash ON chat_messages(content_hash);
-CREATE INDEX IF NOT EXISTS idx_messages_external ON chat_messages(external_id);
 `;
 
-const MIGRATION_SQL = `
-ALTER TABLE chat_messages ADD COLUMN external_id TEXT;
-ALTER TABLE chat_messages ADD COLUMN meta TEXT;
-CREATE INDEX IF NOT EXISTS idx_messages_external ON chat_messages(external_id);
-`;
+async function ensureChatMessageSchema(database: Database): Promise<void> {
+  const columns = await database.select<{ name: string }[]>(
+    "PRAGMA table_info('chat_messages')"
+  );
+  const columnNames = new Set(columns.map((col) => col.name));
+
+  let hasExternalId = columnNames.has('external_id');
+  if (!hasExternalId) {
+    await database.execute('ALTER TABLE chat_messages ADD COLUMN external_id TEXT');
+    hasExternalId = true;
+  }
+
+  if (!columnNames.has('meta')) {
+    await database.execute('ALTER TABLE chat_messages ADD COLUMN meta TEXT');
+  }
+
+  if (hasExternalId) {
+    await database.execute(
+      'CREATE INDEX IF NOT EXISTS idx_messages_external ON chat_messages(external_id)'
+    );
+  }
+}
 
 const DEFAULT_PROVIDERS_SQL = `
 INSERT OR IGNORE INTO providers (id, name, url, sort_order, selector_config) VALUES
@@ -104,14 +120,7 @@ export async function initDatabase(): Promise<Database> {
 
     await loaded.execute(INIT_SQL);
     await loaded.execute(DEFAULT_PROVIDERS_SQL);
-
-    try {
-      for (const stmt of MIGRATION_SQL.split(';').filter((s) => s.trim())) {
-        await loaded.execute(stmt);
-      }
-    } catch {
-      // Migration columns may already exist
-    }
+    await ensureChatMessageSchema(loaded);
 
     db = loaded;
     return loaded;
