@@ -25,13 +25,24 @@ vi.mock('@/services/database', () => ({
   createMessage: vi.fn(),
 }));
 
+type StoreState = {
+  activeServiceId: string | null;
+  settingsPageOpen: boolean;
+  settingsActiveTab: 'services' | 'data' | 'about';
+  addServiceDialogOpen: boolean;
+  services: unknown[];
+};
+
+let storeState: StoreState = {
+  activeServiceId: null,
+  settingsPageOpen: false,
+  settingsActiveTab: 'services',
+  addServiceDialogOpen: false,
+  services: [],
+};
+
 vi.mock('@/stores/app-store', () => ({
-  useAppStore: () => ({
-    activeServiceId: null,
-    settingsPageOpen: false,
-    addServiceDialogOpen: false,
-    services: [],
-  }),
+  useAppStore: () => storeState,
 }));
 
 vi.mock('@/components/Sidebar', () => ({
@@ -61,7 +72,24 @@ Object.defineProperty(window, 'localStorage', {
 });
 
 describe('AppLayout', () => {
+  beforeEach(() => {
+    storeState = {
+      activeServiceId: null,
+      settingsPageOpen: false,
+      settingsActiveTab: 'services',
+      addServiceDialogOpen: false,
+      services: [],
+    };
+  });
+
   it('shows database init error when initialization fails', async () => {
+    storeState = {
+      activeServiceId: null,
+      settingsPageOpen: true,
+      settingsActiveTab: 'data',
+      addServiceDialogOpen: false,
+      services: [],
+    };
     render(<AppLayout />);
 
     await waitFor(() => {
@@ -69,5 +97,35 @@ describe('AppLayout', () => {
     });
 
     expect(screen.getByText('db init failed')).toBeInTheDocument();
+  });
+
+  it('does not show db overlay when settings page is closed', async () => {
+    storeState = {
+      activeServiceId: null,
+      settingsPageOpen: false,
+      settingsActiveTab: 'data',
+      addServiceDialogOpen: false,
+      services: [],
+    };
+    render(<AppLayout />);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Initializing...')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows db overlay only on data tab', async () => {
+    storeState = {
+      activeServiceId: null,
+      settingsPageOpen: true,
+      settingsActiveTab: 'data',
+      addServiceDialogOpen: false,
+      services: [],
+    };
+    render(<AppLayout />);
+
+    await waitFor(() => {
+      expect(screen.getByText('数据库初始化失败')).toBeInTheDocument();
+    });
   });
 });

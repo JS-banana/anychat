@@ -25,7 +25,13 @@ interface ChatCaptureEvent {
 export function AppLayout() {
   const [dbReady, setDbReady] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
-  const { activeServiceId, settingsPageOpen, addServiceDialogOpen, services } = useAppStore();
+  const {
+    activeServiceId,
+    settingsPageOpen,
+    settingsActiveTab,
+    addServiceDialogOpen,
+    services,
+  } = useAppStore();
 
   const isAnyDialogOpen = settingsPageOpen || addServiceDialogOpen;
   const activeService = services.find((s) => s.id === activeServiceId);
@@ -113,7 +119,7 @@ export function AppLayout() {
       <Sidebar />
       {settingsPageOpen ? <SettingsPage /> : <WebViewContainer />}
       <AddServiceDialog />
-      {!dbReady && (
+      {!dbReady && settingsPageOpen && settingsActiveTab === 'data' && (
         <div className="pointer-events-none fixed inset-y-0 left-16 right-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-muted-foreground">
             {dbError ? '数据库初始化失败' : 'Initializing...'}
