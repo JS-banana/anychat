@@ -736,9 +736,23 @@ fn should_allow_new_window(url: &str) -> bool {
     !is_auth_url(url)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum ShowAction {
+    FocusOnly,
+    ShowAndUnminimize,
+}
+
+fn decide_show_action(is_visible: bool, is_minimized: bool) -> ShowAction {
+    if is_visible && !is_minimized {
+        ShowAction::FocusOnly
+    } else {
+        ShowAction::ShowAndUnminimize
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::should_allow_new_window;
+    use super::{decide_show_action, ShowAction, should_allow_new_window};
 
     #[test]
     fn denies_new_window_for_auth_domains() {
@@ -749,17 +763,35 @@ mod tests {
     fn allows_new_window_for_non_auth_domains() {
         assert!(should_allow_new_window("https://example.com"));
     }
+
+    #[test]
+    fn show_action_focus_only_when_visible_and_not_minimized() {
+        assert_eq!(decide_show_action(true, false), ShowAction::FocusOnly);
+    }
+
+    #[test]
+    fn show_action_show_when_hidden() {
+        assert_eq!(decide_show_action(false, false), ShowAction::ShowAndUnminimize);
+    }
+
+    #[test]
+    fn show_action_show_when_minimized() {
+        assert_eq!(decide_show_action(true, true), ShowAction::ShowAndUnminimize);
+    }
 }
 
 fn show_main_window(app_handle: &tauri::AppHandle) {
     match app_handle.get_webview_window("main") {
         Some(w) => {
             println!("[AnyChat] show_main_window: restoring main window");
-            if let Err(e) = w.show() {
-                println!("[AnyChat] show_main_window: show failed: {}", e);
+            let is_visible = w.is_visible().unwrap_or(false);
+            let is_minimized = w.is_minimized().unwrap_or(false);
+            if decide_show_action(is_visible, is_minimized) == ShowAction::ShowAndUnminimize {
+                if let Err(e) = w.show() {
+                    println!("[AnyChat] show_main_window: show failed: {}", e);
+                }
+                let _ = w.unminimize();
             }
-            let _ = w.unminimize();
-            let _ = w.center();
             if let Err(e) = w.set_focus() {
                 println!("[AnyChat] show_main_window: set_focus failed: {}", e);
             }
@@ -777,9 +809,12 @@ fn show_main_window(app_handle: &tauri::AppHandle) {
             // is not available. Prefer restoring via Window handle if present.
             if let Some(w) = app_handle.get_window("main") {
                 println!("[AnyChat] show_main_window: restoring via Window handle");
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.center();
+                let is_visible = w.is_visible().unwrap_or(false);
+                let is_minimized = w.is_minimized().unwrap_or(false);
+                if decide_show_action(is_visible, is_minimized) == ShowAction::ShowAndUnminimize {
+                    let _ = w.show();
+                    let _ = w.unminimize();
+                }
                 let _ = w.set_focus();
                 #[cfg(target_os = "macos")]
                 {
@@ -860,9 +895,14 @@ fn show_main_window(app_handle: &tauri::AppHandle) {
                             println!(
                                 "[AnyChat] show_main_window: found orphan window `main`, trying to show"
                             );
-                            let _ = orphan_window.show();
-                            let _ = orphan_window.unminimize();
-                            let _ = orphan_window.center();
+                            let is_visible = orphan_window.is_visible().unwrap_or(false);
+                            let is_minimized = orphan_window.is_minimized().unwrap_or(false);
+                            if decide_show_action(is_visible, is_minimized)
+                                == ShowAction::ShowAndUnminimize
+                            {
+                                let _ = orphan_window.show();
+                                let _ = orphan_window.unminimize();
+                            }
                             let _ = orphan_window.set_focus();
                             return;
                         }
