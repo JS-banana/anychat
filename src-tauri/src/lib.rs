@@ -4,7 +4,7 @@ use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
     webview::WebviewBuilder,
-    Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use warp::Filter;
 
@@ -682,6 +682,28 @@ struct AppState {
     setup_complete: Mutex<bool>,
 }
 
+#[cfg(debug_assertions)]
+fn should_open_devtools() -> bool {
+    match std::env::var("ANYCHAT_OPEN_DEVTOOLS") {
+        Ok(v) => v == "1" || v.eq_ignore_ascii_case("true"),
+        Err(_) => false,
+    }
+}
+
+fn compute_webview_bounds(window: &tauri::Window) -> Result<(PhysicalPosition<i32>, PhysicalSize<u32>), String> {
+    let win_size = window.inner_size().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().unwrap_or(1.0);
+
+    let sidebar_width_physical = (SIDEBAR_WIDTH * scale).round().max(0.0) as u32;
+    let x = sidebar_width_physical.min(win_size.width) as i32;
+    let width = win_size.width.saturating_sub(sidebar_width_physical);
+
+    Ok((
+        PhysicalPosition::new(x, 0),
+        PhysicalSize::new(width, win_size.height),
+    ))
+}
+
 fn is_auth_url(url: &str) -> bool {
     let auth_domains = [
         "accounts.google.com",
@@ -710,6 +732,176 @@ fn is_auth_url(url: &str) -> bool {
     false
 }
 
+fn should_allow_new_window(url: &str) -> bool {
+    !is_auth_url(url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_allow_new_window;
+
+    #[test]
+    fn denies_new_window_for_auth_domains() {
+        assert!(!should_allow_new_window("https://accounts.google.com/o/oauth2/v2/auth"));
+    }
+
+    #[test]
+    fn allows_new_window_for_non_auth_domains() {
+        assert!(should_allow_new_window("https://example.com"));
+    }
+}
+
+fn show_main_window(app_handle: &tauri::AppHandle) {
+    match app_handle.get_webview_window("main") {
+        Some(w) => {
+            println!("[AnyChat] show_main_window: restoring main window");
+            if let Err(e) = w.show() {
+                println!("[AnyChat] show_main_window: show failed: {}", e);
+            }
+            let _ = w.unminimize();
+            let _ = w.center();
+            if let Err(e) = w.set_focus() {
+                println!("[AnyChat] show_main_window: set_focus failed: {}", e);
+            }
+
+            // On macOS, occasionally the window can be "shown" but still not brought to front.
+            // Toggling always-on-top is a pragmatic nudge.
+            #[cfg(target_os = "macos")]
+            {
+                let _ = w.set_always_on_top(true);
+                let _ = w.set_always_on_top(false);
+            }
+        }
+        None => {
+            // In some edge cases, Tauri can have a window label reserved while the webview window handle
+            // is not available. Prefer restoring via Window handle if present.
+            if let Some(w) = app_handle.get_window("main") {
+                println!("[AnyChat] show_main_window: restoring via Window handle");
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.center();
+                let _ = w.set_focus();
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = w.set_always_on_top(true);
+                    let _ = w.set_always_on_top(false);
+                }
+                return;
+            }
+
+            let existing_webview_windows: Vec<String> =
+                app_handle.webview_windows().keys().cloned().collect();
+            let existing_windows: Vec<String> = app_handle.windows().keys().cloned().collect();
+            println!(
+                "[AnyChat] show_main_window: main window not found, windows={:?}, webview_windows={:?}",
+                existing_windows, existing_webview_windows
+            );
+
+            // The window may have been closed/destroyed by the OS. Re-create it on demand.
+            let recreate = || {
+                WebviewWindowBuilder::new(app_handle, "main", WebviewUrl::App("index.html".into()))
+                .title("")
+                .inner_size(1200.0, 800.0)
+                .min_inner_size(800.0, 600.0)
+                .build()
+            };
+
+            match recreate() {
+                Ok(w) => {
+                    println!("[AnyChat] show_main_window: main window re-created");
+
+                    // Re-attach resize handler for child webviews (since this is a new window).
+                    let app_handle_clone = app_handle.clone();
+                    let window = w.as_ref().window();
+                    window.on_window_event(move |event| {
+                        if let WindowEvent::Resized(_) = event {
+                            if let Some(main_w) = app_handle_clone.get_webview_window("main") {
+                                let window = main_w.as_ref().window();
+                                let (pos, size) = match compute_webview_bounds(&window) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        println!(
+                                            "[AnyChat] Failed to compute webview bounds on resize: {}",
+                                            e
+                                        );
+                                        return;
+                                    }
+                                };
+
+                                let state = app_handle_clone.state::<AppState>();
+                                let created = state.created_webviews.lock().unwrap();
+                                for label in created.iter() {
+                                    if let Some(webview) = app_handle_clone.get_webview(label) {
+                                        let _ = webview.set_position(pos);
+                                        let _ = webview.set_size(size);
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    let _ = w.show();
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                }
+                Err(e) => {
+                    println!(
+                        "[AnyChat] show_main_window: failed to re-create main window: {}",
+                        e
+                    );
+
+                    // Sometimes Tauri reports the label as already taken while the window handle is missing.
+                    // Try to close the orphaned webview and recreate once more.
+                    let err = e.to_string();
+                    if err.contains("label `main` already exists")
+                        || err.contains("window with label `main` already exists")
+                    {
+                        if let Some(orphan_window) = app_handle.get_window("main") {
+                            println!(
+                                "[AnyChat] show_main_window: found orphan window `main`, trying to show"
+                            );
+                            let _ = orphan_window.show();
+                            let _ = orphan_window.unminimize();
+                            let _ = orphan_window.center();
+                            let _ = orphan_window.set_focus();
+                            return;
+                        }
+
+                        if let Some(orphan) = app_handle.get_webview("main") {
+                            println!(
+                                "[AnyChat] show_main_window: found orphan webview `main`, closing..."
+                            );
+                            let _ = orphan.close();
+                        } else {
+                            println!(
+                                "[AnyChat] show_main_window: no webview `main` found despite label conflict"
+                            );
+                        }
+
+                        match recreate() {
+                            Ok(w) => {
+                                println!(
+                                    "[AnyChat] show_main_window: main window re-created after closing orphan"
+                                );
+                                let _ = w.show();
+                                let _ = w.unminimize();
+                                let _ = w.center();
+                                let _ = w.set_focus();
+                            }
+                            Err(e2) => {
+                                println!(
+                                    "[AnyChat] show_main_window: still failed to re-create main window: {}",
+                                    e2
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn create_webview_for_service(
     app: &tauri::AppHandle,
     label: &str,
@@ -720,10 +912,7 @@ fn create_webview_for_service(
 ) -> Result<(), String> {
     println!("[AnyChat] create_webview_for_service: creating {} -> {}", label, url);
 
-    let win_size = window.inner_size().map_err(|e| e.to_string())?;
-    let scale = window.scale_factor().unwrap_or(1.0);
-    let content_width = (win_size.width as f64 / scale) - SIDEBAR_WIDTH;
-    let content_height = win_size.height as f64 / scale;
+    let (pos, size) = compute_webview_bounds(window)?;
 
     let app_handle_clone = app.clone();
     let parsed_url: tauri::Url = url.parse().map_err(|e| format!("{}", e))?;
@@ -768,22 +957,29 @@ fn create_webview_for_service(
                 .build();
             }
 
-            tauri::webview::NewWindowResponse::Allow
-        })
-        .auto_resize();
+            if should_allow_new_window(url.as_str()) {
+                tauri::webview::NewWindowResponse::Allow
+            } else {
+                tauri::webview::NewWindowResponse::Deny
+            }
+        });
 
     println!("[AnyChat] create_webview_for_service: calling add_child");
 
-    window
+    let webview = window
         .add_child(
             webview_builder,
-            LogicalPosition::new(SIDEBAR_WIDTH, 0.0),
-            LogicalSize::new(content_width, content_height),
+            pos,
+            size,
         )
         .map_err(|e| {
             println!("[AnyChat] add_child failed: {}", e);
             e.to_string()
         })?;
+
+    // Some platforms/versions may not apply the initial bounds reliably. Enforce once right away.
+    let _ = webview.set_position(pos);
+    let _ = webview.set_size(size);
 
     let mut created = state.created_webviews.lock().unwrap();
     created.insert(label.to_string());
@@ -791,9 +987,11 @@ fn create_webview_for_service(
     println!("[AnyChat] Created webview: {} -> {}", label, url);
 
     #[cfg(debug_assertions)]
-    if let Some(webview) = app.get_webview(label) {
-        let _ = webview.open_devtools();
-        println!("[AnyChat] DevTools opened for webview: {}", label);
+    if should_open_devtools() {
+        if let Some(webview) = app.get_webview(label) {
+            let _ = webview.open_devtools();
+            println!("[AnyChat] DevTools opened for webview: {}", label);
+        }
     }
 
     Ok(())
@@ -842,6 +1040,10 @@ fn switch_webview(
     }
 
     if let Some(webview) = app.get_webview(&label) {
+        if let Ok((pos, size)) = compute_webview_bounds(&parent) {
+            let _ = webview.set_position(pos);
+            let _ = webview.set_size(size);
+        }
         let _ = webview.show();
         let _ = webview.set_focus();
         println!("[AnyChat] Showing webview: {}", label);
@@ -1256,11 +1458,13 @@ pub fn run() {
             let window = main_webview_window.as_ref().window();
 
             let state = app.state::<AppState>();
+            let (pos, size) = compute_webview_bounds(&window)?;
 
-            let win_size = window.inner_size().map_err(|e| e.to_string())?;
-            let scale = window.scale_factor().unwrap_or(1.0);
-            let content_width = (win_size.width as f64 / scale) - SIDEBAR_WIDTH;
-            let content_height = win_size.height as f64 / scale;
+            #[cfg(debug_assertions)]
+            if should_open_devtools() {
+                let _ = main_webview_window.open_devtools();
+                println!("[AnyChat] DevTools opened for main webview window");
+            }
 
             let default_services = [
                 ("chatgpt", "https://chatgpt.com"),
@@ -1312,15 +1516,19 @@ pub fn run() {
 
                     tauri::webview::NewWindowResponse::Allow
                 })
-                .auto_resize();
+                ;
 
                 let webview = window
                     .add_child(
                         webview_builder,
-                        LogicalPosition::new(SIDEBAR_WIDTH, 0.0),
-                        LogicalSize::new(content_width, content_height),
+                        pos,
+                        size,
                     )
                     .map_err(|e| e.to_string())?;
+
+                // Some platforms/versions may not apply the initial bounds reliably. Enforce once right away.
+                let _ = webview.set_position(pos);
+                let _ = webview.set_size(size);
 
                 {
                     let mut created = state.created_webviews.lock().unwrap();
@@ -1328,7 +1536,7 @@ pub fn run() {
                 }
 
                 #[cfg(debug_assertions)]
-                if index == 0 {
+                if index == 0 && should_open_devtools() {
                     let _ = webview.open_devtools();
                     println!("[AnyChat] DevTools opened for initial webview: {}", label);
                 }
@@ -1342,20 +1550,23 @@ pub fn run() {
             window.on_window_event(move |event| {
                 if let WindowEvent::Resized(size) = event {
                     if let Some(webview_window) = app_handle.get_webview_window("main") {
-                        let scale = webview_window.scale_factor().unwrap_or(1.0);
-                        let new_content_width = (size.width as f64 / scale) - SIDEBAR_WIDTH;
-                        let new_content_height = size.height as f64 / scale;
+                        let _ = size; // keep pattern explicit: we recompute bounds from window state
+
+                        let window = webview_window.as_ref().window();
+                        let (pos, size) = match compute_webview_bounds(&window) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                println!("[AnyChat] Failed to compute webview bounds on resize: {}", e);
+                                return;
+                            }
+                        };
 
                         let state = app_handle.state::<AppState>();
                         let created = state.created_webviews.lock().unwrap();
                         for label in created.iter() {
                             if let Some(webview) = app_handle.get_webview(label) {
-                                let _ = webview
-                                    .set_position(LogicalPosition::new(SIDEBAR_WIDTH, 0.0));
-                                let _ = webview.set_size(LogicalSize::new(
-                                    new_content_width,
-                                    new_content_height,
-                                ));
+                                let _ = webview.set_position(pos);
+                                let _ = webview.set_size(size);
                             }
                         }
                     }
@@ -1367,9 +1578,9 @@ pub fn run() {
                 *setup_complete = true;
             }
 
-            let show_item = MenuItemBuilder::with_id("show", "Show Window").build(app)?;
-            let hide_item = MenuItemBuilder::with_id("hide", "Hide Window").build(app)?;
-            let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+            let show_item = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
+            let hide_item = MenuItemBuilder::with_id("hide", "隐藏窗口").build(app)?;
+            let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
 
             let tray_menu = MenuBuilder::new(app)
                 .items(&[&show_item, &hide_item, &quit_item])
@@ -1380,17 +1591,17 @@ pub fn run() {
                 .menu(&tray_menu)
                 .on_menu_event(|app_handle, event| match event.id().as_ref() {
                     "show" => {
-                        if let Some(w) = app_handle.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
+                        println!("[AnyChat] Tray menu: show");
+                        show_main_window(app_handle);
                     }
                     "hide" => {
+                        println!("[AnyChat] Tray menu: hide");
                         if let Some(w) = app_handle.get_webview_window("main") {
                             let _ = w.hide();
                         }
                     }
                     "quit" => {
+                        println!("[AnyChat] Tray menu: quit");
                         app_handle.exit(0);
                     }
                     _ => {}
@@ -1416,6 +1627,13 @@ pub fn run() {
             hide_all_webviews,
             capture_chat_message
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                println!("[AnyChat] RunEvent::Reopen");
+                show_main_window(app_handle);
+            }
+        });
 }
