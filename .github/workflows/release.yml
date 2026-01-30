@@ -1,14 +1,87 @@
 name: Release
 
+# NOTE: Workflow changes are validated via PR merge behavior (no local TDD).
+
 on:
-  push:
-    tags:
-      - 'v*'
+  pull_request:
+    types: [closed]
 
 permissions:
   contents: write
 
 jobs:
+  tag:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.ref == 'dev'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.TOKEN }}
+          ref: main
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Read versions
+        id: versions
+        run: |
+          TAURI_VERSION=$(node --input-type=module -e "import fs from 'node:fs'; const c=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8')); console.log(c.version)")
+          PACKAGE_VERSION=$(node --input-type=module -e "import fs from 'node:fs'; const c=JSON.parse(fs.readFileSync('package.json','utf8')); console.log(c.version)")
+          LATEST_TAG=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          echo "tauri_version=$TAURI_VERSION" >> "$GITHUB_OUTPUT"
+          echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve next version
+        id: next
+        run: |
+          NEXT_VERSION=$(node scripts/ci/next-version.mjs "${{ steps.versions.outputs.tauri_version }}" "${{ steps.versions.outputs.latest_tag }}")
+          echo "next_version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $NEXT_VERSION"
+
+      - name: Update version files (if needed)
+        run: |
+          NEXT_VERSION="${{ steps.next.outputs.next_version }}"
+          UPDATED=false
+
+          if [ "${{ steps.versions.outputs.tauri_version }}" != "$NEXT_VERSION" ]; then
+            node --input-type=module -e "import fs from 'node:fs'; const path='src-tauri/tauri.conf.json'; const data=JSON.parse(fs.readFileSync(path,'utf8')); data.version='${NEXT_VERSION}'; fs.writeFileSync(path, JSON.stringify(data, null, 2) + '\n');"
+            UPDATED=true
+          fi
+
+          if [ "${{ steps.versions.outputs.package_version }}" != "$NEXT_VERSION" ]; then
+            node --input-type=module -e "import fs from 'node:fs'; const path='package.json'; const data=JSON.parse(fs.readFileSync(path,'utf8')); data.version='${NEXT_VERSION}'; fs.writeFileSync(path, JSON.stringify(data, null, 2) + '\n');"
+            UPDATED=true
+          fi
+
+          if [ "$UPDATED" = true ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src-tauri/tauri.conf.json package.json
+            git commit -m "chore: 版本 $NEXT_VERSION [skip ci]"
+            git push origin HEAD:main
+          fi
+
+      - name: Create and push tag
+        id: tag
+        run: |
+          TAG="v${{ steps.next.outputs.next_version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists."
+            echo "tag_name=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
