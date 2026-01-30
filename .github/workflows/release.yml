@@ -16,6 +16,8 @@ jobs:
       github.event.pull_request.base.ref == 'main' &&
       github.event.pull_request.head.ref == 'dev'
     runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ steps.tag.outputs.tag_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,6 +86,8 @@ jobs:
 
   build:
     name: Build ${{ matrix.os }}
+    needs: [tag]
+    if: needs.tag.outputs.tag_name != ''
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -100,6 +104,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.tag_name }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -134,9 +140,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: AnyChat ${{ github.ref_name }}
+          tagName: ${{ needs.tag.outputs.tag_name }}
+          releaseName: AnyChat ${{ needs.tag.outputs.tag_name }}
           releaseBody: |
-            Automated build from tag ${{ github.ref_name }}.
+            Automated build from tag ${{ needs.tag.outputs.tag_name }}.
           releaseDraft: false
           prerelease: false
