@@ -6,6 +6,7 @@ use tauri::{
     webview::WebviewBuilder,
     Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
+use tauri_plugin_opener::OpenerExt;
 use warp::Filter;
 
 const SIDEBAR_WIDTH: f64 = 64.0;
@@ -553,6 +554,12 @@ const AUTH_SCRIPT: &str = r#"
             assistantMessage: '[class*="assistant"]',
             content: '[class*="content"]'
         },
+        'qianwen.com': {
+            container: '[class*="chat-message"]',
+            userMessage: '[class*="user"]',
+            assistantMessage: '[class*="assistant"]',
+            content: '[class*="content"]'
+        },
         'kimi.moonshot.cn': {
             container: '[class*="message-item"]',
             userMessage: '[class*="user"]',
@@ -732,8 +739,21 @@ fn is_auth_url(url: &str) -> bool {
     false
 }
 
-fn should_allow_new_window(url: &str) -> bool {
-    !is_auth_url(url)
+fn should_allow_new_window(_url: &str) -> bool {
+    false
+}
+
+fn handle_external_new_window<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    url: &tauri::Url,
+) -> tauri::webview::NewWindowResponse<R> {
+    if !is_auth_url(url.as_str()) {
+        if let Err(err) = app.opener().open_url(url.as_str(), None::<String>) {
+            println!("[AnyChat] Failed to open external url: {}", err);
+        }
+    }
+
+    tauri::webview::NewWindowResponse::Deny
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -760,8 +780,8 @@ mod tests {
     }
 
     #[test]
-    fn allows_new_window_for_non_auth_domains() {
-        assert!(should_allow_new_window("https://example.com"));
+    fn denies_new_window_for_non_auth_domains() {
+        assert!(!should_allow_new_window("https://example.com"));
     }
 
     #[test]
@@ -1000,7 +1020,7 @@ fn create_webview_for_service(
             if should_allow_new_window(url.as_str()) {
                 tauri::webview::NewWindowResponse::Allow
             } else {
-                tauri::webview::NewWindowResponse::Deny
+                handle_external_new_window(&app_handle_clone, &url)
             }
         });
 
@@ -1554,7 +1574,11 @@ pub fn run() {
                         .build();
                     }
 
-                    tauri::webview::NewWindowResponse::Allow
+                    if should_allow_new_window(url.as_str()) {
+                        tauri::webview::NewWindowResponse::Allow
+                    } else {
+                        handle_external_new_window(&app_handle_clone, &url)
+                    }
                 })
                 ;
 

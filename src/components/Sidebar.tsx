@@ -43,7 +43,10 @@ export function Sidebar() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex h-full w-16 flex-col items-center border-r border-sidebar-border bg-sidebar py-3">
+      <div
+        className="flex h-full w-16 flex-col items-center border-r border-sidebar-border bg-sidebar py-3"
+        onContextMenu={(event) => event.preventDefault()}
+      >
         <div className="flex flex-1 flex-col items-center gap-2">
           {enabledServices.map((service) => {
             const isActive = activeServiceId === service.id;

@@ -106,7 +106,9 @@ export const DEFAULT_SERVICES: ChatService[] = [
   {
     id: 'qwen',
     name: '通义千问',
-    url: 'https://chat.qwen.ai',
+    url: 'https://www.qianwen.com',
+    iconUrl:
+      'https://img.alicdn.com/imgextra/i4/O1CN01uar8u91DHWktnF2fl_!!6000000000191-2-tps-110-110.png',
     brandColor: '#6366F1',
     enabled: false,
     order: 8,
