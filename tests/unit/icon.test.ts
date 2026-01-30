@@ -11,25 +11,17 @@ describe('getServiceIconCandidates', () => {
     expect(candidates[0]).toBe('https://example.com/custom-icon.png');
   });
 
-  it('should include Google S2 favicon as fallback', () => {
-    const candidates = getServiceIconCandidates('https://chatgpt.com');
+  it('should include official qianwen icon before generic fallbacks', () => {
+    const candidates = getServiceIconCandidates('https://www.qianwen.com');
 
-    expect(candidates.length).toBeGreaterThan(0);
-    expect(candidates[0]).toContain('google.com/s2/favicons');
+    expect(candidates[0]).toContain('alicdn.com');
   });
 
-  it('should include hostname in fallback URL', () => {
-    const candidates = getServiceIconCandidates('https://chatgpt.com');
+  it('should include origin favicon and ddg favicon as fallbacks', () => {
+    const candidates = getServiceIconCandidates('https://example.com');
 
-    expect(candidates[0]).toContain('chatgpt.com');
-  });
-
-  it('should not duplicate URLs when explicit matches fallback', () => {
-    const iconUrl = 'https://www.google.com/s2/favicons?domain=chatgpt.com&sz=64';
-    const candidates = getServiceIconCandidates('https://chatgpt.com', iconUrl);
-
-    const uniqueCandidates = [...new Set(candidates)];
-    expect(candidates.length).toBe(uniqueCandidates.length);
+    expect(candidates.some((c) => c.endsWith('/favicon.ico'))).toBe(true);
+    expect(candidates.some((c) => c.includes('icons.duckduckgo.com'))).toBe(true);
   });
 
   it('should return empty array for invalid URLs', () => {
@@ -41,13 +33,21 @@ describe('getServiceIconCandidates', () => {
   it('should extract hostname correctly from complex URLs', () => {
     const candidates = getServiceIconCandidates('https://chat.deepseek.com/coder?lang=en');
 
-    expect(candidates[0]).toContain('chat.deepseek.com');
+    expect(candidates.some((c) => c.includes('chat.deepseek.com'))).toBe(true);
   });
 
   it('should handle URLs with ports', () => {
     const candidates = getServiceIconCandidates('https://localhost:3000/chat');
 
-    expect(candidates[0]).toContain('localhost');
+    expect(candidates.some((c) => c.includes('localhost'))).toBe(true);
+  });
+
+  it('should not duplicate URLs when explicit matches fallback', () => {
+    const iconUrl = 'https://chatgpt.com/favicon.ico';
+    const candidates = getServiceIconCandidates('https://chatgpt.com', iconUrl);
+
+    const uniqueCandidates = [...new Set(candidates)];
+    expect(candidates.length).toBe(uniqueCandidates.length);
   });
 
   it('should prioritize explicit iconUrl over fallback', () => {
@@ -55,6 +55,6 @@ describe('getServiceIconCandidates', () => {
     const candidates = getServiceIconCandidates('https://example.com', explicitUrl);
 
     expect(candidates[0]).toBe(explicitUrl);
-    expect(candidates.length).toBe(2);
+    expect(candidates.length).toBe(3);
   });
 });
