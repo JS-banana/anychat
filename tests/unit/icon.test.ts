@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { findWorkingIconCandidate, getServiceIconCandidates, normalizeServiceUrl } from '@/lib/icon';
+import { invoke } from '@tauri-apps/api/core';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import {
+  findWorkingIconCandidate,
+  getServiceIconCandidates,
+  normalizeServiceUrl,
+  resolveServiceIconCandidates,
+} from '@/lib/icon';
 
 class MockImage {
   onload: null | (() => void) = null;
@@ -26,6 +32,11 @@ class MockImage {
 }
 
 describe('getServiceIconCandidates', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(invoke).mockResolvedValue(null);
+  });
+
   it('should return explicit icon URL first when provided', () => {
     const candidates = getServiceIconCandidates(
       'https://chatgpt.com',
@@ -142,5 +153,19 @@ describe('getServiceIconCandidates', () => {
     });
 
     expect(iconUrl).toBeNull();
+  });
+
+  it('should prioritize discovered page icon ahead of generic fallback candidates', async () => {
+    vi.mocked(invoke).mockResolvedValue('https://aistudio.xiaomimimo.com/favicon.0619b0d2.png');
+
+    const candidates = await resolveServiceIconCandidates(
+      'https://aistudio.xiaomimimo.com',
+      'https://www.google.com/s2/favicons?domain=aistudio.xiaomimimo.com&sz=64'
+    );
+
+    expect(candidates[0]).toBe('https://aistudio.xiaomimimo.com/favicon.0619b0d2.png');
+    expect(candidates).toContain(
+      'https://www.google.com/s2/favicons?domain=aistudio.xiaomimimo.com&sz=64'
+    );
   });
 });

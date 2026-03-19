@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::sync::Mutex;
+use regex::Regex;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
@@ -1137,6 +1138,67 @@ fn hide_all_webviews(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn discover_site_icon(url: String) -> Result<Option<String>, String> {
+    let parsed_url = reqwest::Url::parse(&url).map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .get(parsed_url.clone())
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+
+    let html = response.text().await.map_err(|e| e.to_string())?;
+    Ok(extract_site_icon_url(&parsed_url, &html))
+}
+
+fn extract_site_icon_url(base_url: &reqwest::Url, html: &str) -> Option<String> {
+    let link_tag_regex = Regex::new(r"(?is)<link\b[^>]*>").ok()?;
+    let rel_regex = Regex::new(r#"(?i)rel\s*=\s*["']([^"']+)["']"#).ok()?;
+    let href_regex = Regex::new(r#"(?i)href\s*=\s*["']([^"']+)["']"#).ok()?;
+
+    for tag_match in link_tag_regex.find_iter(html) {
+        let tag = tag_match.as_str();
+        let Some(rel_value) = rel_regex
+            .captures(tag)
+            .and_then(|captures| captures.get(1))
+            .map(|value| value.as_str().to_ascii_lowercase()) else {
+                continue;
+            };
+
+        if !rel_value.contains("icon") {
+            continue;
+        }
+
+        let Some(href) = href_regex
+            .captures(tag)
+            .and_then(|captures| captures.get(1))
+            .map(|value| value.as_str().trim()) else {
+                continue;
+            };
+
+        if href.is_empty() || href.starts_with("data:") {
+            continue;
+        }
+
+        if let Ok(resolved_url) = base_url.join(href) {
+            return Some(resolved_url.to_string());
+        }
+    }
+
+    None
+}
+
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 struct CapturedMessage {
     role: String,
@@ -1686,6 +1748,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            discover_site_icon,
             switch_webview,
             refresh_webview,
             hide_all_webviews,

@@ -1,11 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { invoke } from '@tauri-apps/api/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCachedIcon } from '@/hooks/useCachedIcon';
-import { getServiceIconCandidates } from '@/lib/icon';
+import { resolveServiceIconCandidates } from '@/lib/icon';
 import { getCachedIcon, cacheIcon } from '@/lib/icon-cache';
 
 vi.mock('@/lib/icon', () => ({
-  getServiceIconCandidates: vi.fn(),
+  resolveServiceIconCandidates: vi.fn(),
 }));
 
 vi.mock('@/lib/icon-cache', () => ({
@@ -16,10 +17,11 @@ vi.mock('@/lib/icon-cache', () => ({
 describe('useCachedIcon', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(invoke).mockResolvedValue(null);
   });
 
   it('should fall back to the first candidate URL when caching fetches all fail', async () => {
-    vi.mocked(getServiceIconCandidates).mockReturnValue([
+    vi.mocked(resolveServiceIconCandidates).mockResolvedValue([
       'https://example.com/favicon.svg',
       'https://example.com/favicon.ico',
     ]);
@@ -44,7 +46,7 @@ describe('useCachedIcon', () => {
   });
 
   it('should advance to the next candidate when the current image source errors', async () => {
-    vi.mocked(getServiceIconCandidates).mockReturnValue([
+    vi.mocked(resolveServiceIconCandidates).mockResolvedValue([
       'https://example.com/favicon.svg',
       'https://example.com/favicon.ico',
       'https://www.google.com/s2/favicons?domain=example.com&sz=64',
@@ -77,7 +79,7 @@ describe('useCachedIcon', () => {
   });
 
   it('reports the resolved candidate URL after a fallback image loads successfully', async () => {
-    vi.mocked(getServiceIconCandidates).mockReturnValue([
+    vi.mocked(resolveServiceIconCandidates).mockResolvedValue([
       'https://example.com/favicon.svg',
       'https://example.com/favicon.ico',
     ]);
@@ -111,8 +113,32 @@ describe('useCachedIcon', () => {
     expect(handleResolved).toHaveBeenCalledWith('https://example.com/favicon.ico');
   });
 
+  it('should prefer a discovered page icon over a generic fallback URL', async () => {
+    vi.mocked(resolveServiceIconCandidates).mockResolvedValue([
+      'https://aistudio.xiaomimimo.com/favicon.0619b0d2.png',
+      'https://www.google.com/s2/favicons?domain=aistudio.xiaomimimo.com&sz=64',
+    ]);
+    vi.mocked(getCachedIcon).mockResolvedValue(null);
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      blob: vi.fn(),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { result } = renderHook(() =>
+      useCachedIcon('svc-discovered', 'https://aistudio.xiaomimimo.com', undefined)
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.iconSrc).toBe('https://aistudio.xiaomimimo.com/favicon.0619b0d2.png');
+  });
+
   it('should skip non-image response and continue trying next candidate', async () => {
-    vi.mocked(getServiceIconCandidates).mockReturnValue([
+    vi.mocked(resolveServiceIconCandidates).mockResolvedValue([
       'https://example.com/not-image',
       'https://example.com/real-image',
     ]);
