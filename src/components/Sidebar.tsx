@@ -1,24 +1,29 @@
-import { useState } from 'react';
 import { Settings, MessageSquare } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '@/stores/app-store';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { getServiceIconCandidates } from '@/lib/icon';
+import { useCachedIcon } from '@/hooks/useCachedIcon';
 
 interface ServiceIconProps {
   serviceId: string;
   serviceUrl: string;
   iconUrl?: string;
   serviceName: string;
+  onResolvedIcon?: (resolvedIconUrl: string) => void;
 }
 
-function ServiceIcon({ serviceUrl, iconUrl, serviceName }: ServiceIconProps) {
-  const candidates = getServiceIconCandidates(serviceUrl, iconUrl);
-  const [errorIndex, setErrorIndex] = useState(0);
-
-  const currentIcon = candidates[errorIndex];
+function ServiceIcon({
+  serviceId,
+  serviceUrl,
+  iconUrl,
+  serviceName,
+  onResolvedIcon,
+}: ServiceIconProps) {
+  const { iconSrc: currentIcon, onError, onLoad } = useCachedIcon(serviceId, serviceUrl, iconUrl, {
+    onResolvedCandidate: onResolvedIcon,
+  });
 
   if (!currentIcon) {
     return <MessageSquare className="h-5 w-5 text-muted-foreground" />;
@@ -30,14 +35,16 @@ function ServiceIcon({ serviceUrl, iconUrl, serviceName }: ServiceIconProps) {
         src={currentIcon}
         alt={serviceName}
         className="h-6 w-6 object-contain"
-        onError={() => setErrorIndex((prev) => prev + 1)}
+        onLoad={onLoad}
+        onError={onError}
       />
     </div>
   );
 }
 
 export function Sidebar() {
-  const { services, activeServiceId, setActiveService, setSettingsPageOpen } = useAppStore();
+  const { services, activeServiceId, setActiveService, setSettingsPageOpen, updateService } =
+    useAppStore();
 
   const enabledServices = services.filter((s) => s.enabled).sort((a, b) => a.order - b.order);
 
@@ -72,6 +79,11 @@ export function Sidebar() {
                       serviceUrl={service.url}
                       iconUrl={service.iconUrl}
                       serviceName={service.name}
+                      onResolvedIcon={(resolvedIconUrl) => {
+                        if (!service.id.startsWith('custom-')) return;
+                        if (resolvedIconUrl === service.iconUrl) return;
+                        updateService(service.id, { iconUrl: resolvedIconUrl });
+                      }}
                     />
                   </button>
                 </TooltipTrigger>

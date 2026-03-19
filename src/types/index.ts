@@ -97,7 +97,7 @@ export const DEFAULT_SERVICES: ChatService[] = [
     id: 'deepseek',
     name: 'DeepSeek',
     url: 'https://chat.deepseek.com',
-    iconUrl: 'https://chat.deepseek.com/favicon.svg',
+    iconUrl: 'https://deepseek.com/favicon.ico',
     brandColor: '#4D6BFE',
     enabled: false,
     order: 7,
