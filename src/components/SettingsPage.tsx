@@ -43,7 +43,8 @@ import {
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { getServiceIconCandidates } from '@/lib/icon';
+import { findWorkingIconCandidate, normalizeServiceUrl } from '@/lib/icon';
+import { useCachedIcon } from '@/hooks/useCachedIcon';
 import { ChatService } from '@/types';
 import { exportAllData } from '@/services/import-export';
 import {
@@ -77,9 +78,19 @@ interface SortableServiceItemProps {
 }
 
 function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceItemProps) {
-  const candidates = getServiceIconCandidates(service.url, service.iconUrl);
-  const [errorIndex, setErrorIndex] = useState(0);
-  const iconUrl = candidates[errorIndex];
+  const updateService = useAppStore((state) => state.updateService);
+  const { iconSrc: iconUrl, onError, onLoad } = useCachedIcon(
+    service.id,
+    service.url,
+    service.iconUrl,
+    {
+      onResolvedCandidate: (resolvedIconUrl) => {
+        if (!service.id.startsWith('custom-')) return;
+        if (resolvedIconUrl === service.iconUrl) return;
+        updateService(service.id, { iconUrl: resolvedIconUrl });
+      },
+    }
+  );
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: service.id,
@@ -114,7 +125,8 @@ function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceIte
             src={iconUrl}
             alt={service.name}
             className="h-5 w-5 object-contain"
-            onError={() => setErrorIndex((prev) => prev + 1)}
+            onLoad={onLoad}
+            onError={onError}
           />
         )}
       </div>
@@ -330,24 +342,15 @@ export function SettingsPage() {
   const fetchLogo = async (url: string) => {
     setLogoLoading(true);
     setFetchedLogoUrl(null);
-    const normalizedUrl = url.startsWith('http') ? url : `https://${url}`;
-    const candidates = getServiceIconCandidates(normalizedUrl);
+    const normalizedUrl = normalizeServiceUrl(url);
 
-    for (const candidate of candidates) {
-      try {
-        const img = new Image();
-        img.src = candidate;
-        await new Promise<void>((resolve, reject) => {
-          img.onload = () => resolve();
-          img.onerror = () => reject();
-        });
-        setFetchedLogoUrl(candidate);
-        setLogoLoading(false);
-        return;
-      } catch {
-        continue;
-      }
+    if (!normalizedUrl) {
+      setLogoLoading(false);
+      return;
     }
+
+    const detectedLogoUrl = await findWorkingIconCandidate(normalizedUrl);
+    setFetchedLogoUrl(detectedLogoUrl);
     setLogoLoading(false);
   };
 
@@ -364,10 +367,8 @@ export function SettingsPage() {
 
   const handleAddService = () => {
     if (newServiceName.trim() && newServiceUrl.trim()) {
-      let url = newServiceUrl.trim();
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = `https://${url}`;
-      }
+      const url = normalizeServiceUrl(newServiceUrl);
+      if (!url) return;
       addService({
         name: newServiceName.trim(),
         url,

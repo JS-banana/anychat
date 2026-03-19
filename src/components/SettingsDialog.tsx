@@ -40,7 +40,7 @@ import { importChatGPTExport, importGeminiExport, exportAllData } from '@/servic
 import { getStatistics } from '@/services/database';
 import { createBackup, listBackups } from '@/services/backup';
 import { ChatService } from '@/types';
-import { getServiceIconCandidates } from '@/lib/icon';
+import { useCachedIcon } from '@/hooks/useCachedIcon';
 import { Input } from '@/components/ui/input';
 
 interface SortableServiceItemProps {
@@ -50,9 +50,19 @@ interface SortableServiceItemProps {
 }
 
 function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceItemProps) {
-  const candidates = getServiceIconCandidates(service.url, service.iconUrl);
-  const [errorIndex, setErrorIndex] = useState(0);
-  const iconUrl = candidates[errorIndex];
+  const updateService = useAppStore((state) => state.updateService);
+  const { iconSrc: iconUrl, onError, onLoad } = useCachedIcon(
+    service.id,
+    service.url,
+    service.iconUrl,
+    {
+      onResolvedCandidate: (resolvedIconUrl) => {
+        if (!service.id.startsWith('custom-')) return;
+        if (resolvedIconUrl === service.iconUrl) return;
+        updateService(service.id, { iconUrl: resolvedIconUrl });
+      },
+    }
+  );
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: service.id,
@@ -87,7 +97,8 @@ function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceIte
             src={iconUrl}
             alt={service.name}
             className="h-5 w-5 object-contain"
-            onError={() => setErrorIndex((prev) => prev + 1)}
+            onLoad={onLoad}
+            onError={onError}
           />
         )}
       </div>

@@ -10,6 +10,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { findWorkingIconCandidate, normalizeServiceUrl } from '@/lib/icon';
 
 const PRESET_SERVICES = [
   {
@@ -22,7 +23,7 @@ const PRESET_SERVICES = [
     id: 'preset-deepseek',
     name: 'DeepSeek',
     url: 'https://chat.deepseek.com',
-    iconUrl: 'https://chat.deepseek.com/favicon.svg',
+    iconUrl: 'https://deepseek.com/favicon.ico',
   },
   {
     id: 'preset-poe',
@@ -44,15 +45,6 @@ const PRESET_SERVICES = [
   },
 ];
 
-function getFaviconUrl(url: string): string {
-  try {
-    const urlObj = new URL(url);
-    return `${urlObj.origin}/favicon.ico`;
-  } catch {
-    return '';
-  }
-}
-
 export function AddServiceDialog() {
   const { addServiceDialogOpen, setAddServiceDialogOpen, addService, services } = useAppStore();
   const [mode, setMode] = useState<'preset' | 'custom'>('preset');
@@ -64,26 +56,34 @@ export function AddServiceDialog() {
   const existingUrls = services.map((s) => s.url.toLowerCase());
 
   useEffect(() => {
-    if (url) {
-      let finalUrl = url.trim();
-      if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-        finalUrl = `https://${finalUrl}`;
+    let cancelled = false;
+
+    const probeIcon = async () => {
+      const normalizedUrl = normalizeServiceUrl(url);
+      if (!normalizedUrl) {
+        setAutoIconUrl('');
+        return;
       }
-      const favicon = getFaviconUrl(finalUrl);
-      setAutoIconUrl(favicon);
-    } else {
-      setAutoIconUrl('');
-    }
+
+      const detectedIconUrl = await findWorkingIconCandidate(normalizedUrl);
+      if (!cancelled) {
+        setAutoIconUrl(detectedIconUrl ?? '');
+      }
+    };
+
+    probeIcon();
+
+    return () => {
+      cancelled = true;
+    };
   }, [url]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !url.trim()) return;
 
-    let finalUrl = url.trim();
-    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-      finalUrl = `https://${finalUrl}`;
-    }
+    const finalUrl = normalizeServiceUrl(url);
+    if (!finalUrl) return;
 
     addService({
       name: name.trim(),
