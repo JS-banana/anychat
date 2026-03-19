@@ -1,3 +1,5 @@
+import { invoke } from '@tauri-apps/api/core';
+
 const OFFICIAL_ICON_MAP: Record<string, string> = {
   'deepseek.com': 'https://deepseek.com/favicon.ico',
   'qianwen.com':
@@ -71,7 +73,7 @@ export async function findWorkingIconCandidate(
   explicitIconUrl?: string,
   options?: { timeoutMs?: number; ImageCtor?: typeof Image }
 ): Promise<string | null> {
-  const candidates = getServiceIconCandidates(serviceUrl, explicitIconUrl);
+  const candidates = await resolveServiceIconCandidates(serviceUrl, explicitIconUrl);
 
   for (const candidate of candidates) {
     try {
@@ -85,9 +87,39 @@ export async function findWorkingIconCandidate(
   return null;
 }
 
+export async function resolveServiceIconCandidates(
+  serviceUrl: string,
+  explicitIconUrl?: string
+): Promise<string[]> {
+  const baseCandidates = getServiceIconCandidates(serviceUrl, explicitIconUrl);
+  const discoveredIconUrl = await discoverSiteIcon(serviceUrl);
+
+  if (!discoveredIconUrl || baseCandidates.includes(discoveredIconUrl)) {
+    return baseCandidates;
+  }
+
+  const explicitIsPreferred =
+    !!explicitIconUrl && !isThirdPartyFallbackIcon(explicitIconUrl) && baseCandidates[0] === explicitIconUrl;
+
+  if (explicitIsPreferred) {
+    return [baseCandidates[0], discoveredIconUrl, ...baseCandidates.slice(1)];
+  }
+
+  return [discoveredIconUrl, ...baseCandidates];
+}
+
 function parseUrl(url: string): URL | null {
   try {
     return new URL(url);
+  } catch {
+    return null;
+  }
+}
+
+async function discoverSiteIcon(serviceUrl: string): Promise<string | null> {
+  try {
+    const discoveredIconUrl = await invoke<string | null>('discover_site_icon', { url: serviceUrl });
+    return typeof discoveredIconUrl === 'string' && discoveredIconUrl ? discoveredIconUrl : null;
   } catch {
     return null;
   }

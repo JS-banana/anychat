@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getCachedIcon, cacheIcon } from '@/lib/icon-cache';
-import { getServiceIconCandidates } from '@/lib/icon';
+import { resolveServiceIconCandidates } from '@/lib/icon';
 
 interface CachedIconState {
   url: string | null;
@@ -8,6 +8,7 @@ interface CachedIconState {
   candidateIndex: number;
   candidateUrl: string | null;
   resolved: boolean;
+  candidates: string[];
 }
 
 const iconStateCache = new Map<string, CachedIconState>();
@@ -42,9 +43,16 @@ async function loadIconWithCache(
   serviceUrl: string,
   iconUrl: string | undefined
 ): Promise<CachedIconState> {
-  const candidates = getServiceIconCandidates(serviceUrl, iconUrl);
+  const candidates = await resolveServiceIconCandidates(serviceUrl, iconUrl);
   if (candidates.length === 0) {
-    return { url: null, loading: false, candidateIndex: -1, candidateUrl: null, resolved: false };
+    return {
+      url: null,
+      loading: false,
+      candidateIndex: -1,
+      candidateUrl: null,
+      resolved: false,
+      candidates: [],
+    };
   }
 
   for (const [index, candidate] of candidates.entries()) {
@@ -56,6 +64,7 @@ async function loadIconWithCache(
         candidateIndex: index,
         candidateUrl: candidate,
         resolved: true,
+        candidates,
       };
     }
   }
@@ -66,6 +75,7 @@ async function loadIconWithCache(
     candidateIndex: 0,
     candidateUrl: candidates[0] ?? null,
     resolved: false,
+    candidates,
   };
 }
 
@@ -96,6 +106,7 @@ export function useCachedIcon(
         candidateIndex: -1,
         candidateUrl: null,
         resolved: false,
+        candidates: [],
       }
     );
   });
@@ -135,21 +146,20 @@ export function useCachedIcon(
   }, [cacheKey, serviceUrl, iconUrl, reportResolvedCandidate]);
 
   const handleError = useCallback(() => {
-    const candidates = getServiceIconCandidates(serviceUrl, iconUrl);
-
     setState((prev) => {
       const nextIndex = prev.candidateIndex + 1;
       const nextState: CachedIconState = {
-        url: candidates[nextIndex] ?? null,
+        url: prev.candidates[nextIndex] ?? null,
         loading: false,
         candidateIndex: nextIndex,
-        candidateUrl: candidates[nextIndex] ?? null,
+        candidateUrl: prev.candidates[nextIndex] ?? null,
         resolved: false,
+        candidates: prev.candidates,
       };
       iconStateCache.set(cacheKey, nextState);
       return nextState;
     });
-  }, [cacheKey, serviceUrl, iconUrl]);
+  }, [cacheKey]);
 
   const handleLoad = useCallback(() => {
     setState((prev) => {
