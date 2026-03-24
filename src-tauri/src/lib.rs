@@ -1,11 +1,11 @@
+use regex::Regex;
 use std::collections::HashSet;
 use std::sync::Mutex;
-use regex::Regex;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
     webview::WebviewBuilder,
-    Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_opener::OpenerExt;
 use warp::Filter;
@@ -33,22 +33,22 @@ const AUTH_SCRIPT: &str = r#"
     // ============================================================
     if (navigator.credentials) {
         const disabledCredentials = {
-            create: function() { 
+            create: function() {
                 console.log('[AnyChat] WebAuthn create blocked - use password login');
                 return Promise.reject(new DOMException('NotSupportedError', 'NotSupportedError'));
             },
-            get: function() { 
+            get: function() {
                 console.log('[AnyChat] WebAuthn get blocked - use password login');
                 return Promise.reject(new DOMException('NotSupportedError', 'NotSupportedError'));
             },
-            store: function() { 
+            store: function() {
                 return Promise.reject(new DOMException('NotSupportedError', 'NotSupportedError'));
             },
-            preventSilentAccess: function() { 
+            preventSilentAccess: function() {
                 return Promise.resolve();
             }
         };
-        
+
         try {
             Object.defineProperty(navigator, 'credentials', {
                 get: function() { return disabledCredentials; },
@@ -59,7 +59,7 @@ const AUTH_SCRIPT: &str = r#"
             console.log('[AnyChat] Could not disable WebAuthn:', e);
         }
     }
-    
+
     if (window.PublicKeyCredential) {
         try {
             Object.defineProperty(window, 'PublicKeyCredential', {
@@ -82,35 +82,35 @@ const AUTH_SCRIPT: &str = r#"
         'twitter.com',
         'auth0.com'
     ];
-    
+
     const AUTH_PATHS = ['/oauth/', '/auth/', '/authorize', '/login', '/signin', '/o/oauth2'];
-    
+
     window.__isAuthUrl = function(url) {
         try {
             const urlObj = new URL(url, window.location.href);
             const hostname = urlObj.hostname.toLowerCase();
             const pathname = urlObj.pathname.toLowerCase();
-            
+
             for (const domain of AUTH_DOMAINS) {
                 if (hostname.includes(domain)) return true;
             }
-            
+
             for (const path of AUTH_PATHS) {
                 if (pathname.includes(path)) return true;
             }
-            
+
             return false;
         } catch (e) {
             return false;
         }
     };
-    
+
     window.__isAuthPopup = function(url, name) {
         const authWindowNames = ['oauth2', 'oauth', 'google-auth', 'auth-popup', 'signin', 'login', 'AppleAuthentication'];
         if (name && authWindowNames.includes(name)) return true;
         return window.__isAuthUrl(url);
     };
-    
+
     const originalWindowOpen = window.open;
     window.open = function(url, name, specs) {
         if (window.__isAuthPopup(url, name)) {
@@ -134,7 +134,7 @@ const AUTH_SCRIPT: &str = r#"
     // 4. 数据队列（CSP-safe：无网络请求，Rust 轮询读取）
     // ============================================================
     window.__anychatQueue = [];
-    
+
     function sendToBackend(payload) {
         const entry = {
             serviceId: payload.serviceId,
@@ -192,16 +192,16 @@ const AUTH_SCRIPT: &str = r#"
     async function parseSSEStream(reader, onEvent) {
         const decoder = new TextDecoder();
         let buffer = '';
-        
+
         try {
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
-                
+
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
                 buffer = lines.pop() || '';
-                
+
                 for (const line of lines) {
                     if (line.startsWith('data: ')) {
                         const data = line.slice(6).trim();
@@ -229,15 +229,15 @@ const AUTH_SCRIPT: &str = r#"
         const messages = [];
         let conversationId = null;
         let finalAssistantMessage = null;
-        
+
         for (const event of events) {
             if (event.done) continue;
             const data = event.data;
-            
+
             if (data?.message) {
                 const msg = data.message;
                 conversationId = data.conversation_id || conversationId;
-                
+
                 if (msg.author?.role === 'assistant' && msg.content?.parts) {
                     finalAssistantMessage = {
                         id: msg.id,
@@ -249,7 +249,7 @@ const AUTH_SCRIPT: &str = r#"
                 }
             }
         }
-        
+
         if (finalAssistantMessage && finalAssistantMessage.content?.trim()) {
             messages.push({
                 role: finalAssistantMessage.role,
@@ -261,17 +261,17 @@ const AUTH_SCRIPT: &str = r#"
                 source: 'api'
             });
         }
-        
+
         if (requestBody) {
             try {
-                const reqData = typeof requestBody === 'string' 
-                    ? JSON.parse(requestBody) 
+                const reqData = typeof requestBody === 'string'
+                    ? JSON.parse(requestBody)
                     : requestBody;
-                    
+
                 if (reqData.messages && reqData.messages[0]) {
                     const userMsg = reqData.messages[0];
                     const userContent = userMsg.content?.parts?.join('') || '';
-                    
+
                     if (userContent?.trim()) {
                         messages.unshift({
                             role: 'user',
@@ -287,7 +287,7 @@ const AUTH_SCRIPT: &str = r#"
                 console.log('[AnyChat] Failed to parse request body:', e);
             }
         }
-        
+
         return messages;
     }
 
@@ -298,20 +298,20 @@ const AUTH_SCRIPT: &str = r#"
         const messages = [];
         try {
             const data = JSON.parse(jsonText);
-            
+
             if (data?.mapping) {
                 const conversationId = data.conversation_id;
-                
+
                 for (const [nodeId, node] of Object.entries(data.mapping)) {
                     const msg = node?.message;
                     if (!msg || !msg.content?.parts) continue;
-                    
+
                     const role = msg.author?.role;
                     if (role !== 'user' && role !== 'assistant') continue;
-                    
+
                     const content = msg.content.parts.join('').trim();
                     if (!content) continue;
-                    
+
                     messages.push({
                         role: role,
                         content: content,
@@ -321,7 +321,7 @@ const AUTH_SCRIPT: &str = r#"
                         source: 'history'
                     });
                 }
-                
+
                 messages.sort((a, b) => a.timestamp - b.timestamp);
             }
         } catch (e) {
@@ -337,7 +337,7 @@ const AUTH_SCRIPT: &str = r#"
         const messages = [];
         let content = '';
         let conversationId = null;
-        
+
         if (requestBodyText) {
             try {
                 const reqData = JSON.parse(requestBodyText);
@@ -352,11 +352,11 @@ const AUTH_SCRIPT: &str = r#"
                 conversationId = reqData.conversation_uuid;
             } catch (e) {}
         }
-        
+
         for (const event of events) {
             if (event.done) continue;
             const data = event.data;
-            
+
             if (data?.completion) {
                 content += data.completion;
             } else if (data?.delta?.text) {
@@ -365,7 +365,7 @@ const AUTH_SCRIPT: &str = r#"
                 content += data.content_block.text;
             }
         }
-        
+
         if (content && content.trim()) {
             messages.push({
                 role: 'assistant',
@@ -375,7 +375,7 @@ const AUTH_SCRIPT: &str = r#"
                 source: 'api'
             });
         }
-        
+
         return messages;
     }
 
@@ -388,7 +388,7 @@ const AUTH_SCRIPT: &str = r#"
             // Gemini 使用复杂的嵌套数组格式
             // 通常响应结构为: )]}\n[[["wrb.fr",...,[[text]],...]]
             let text = '';
-            
+
             if (typeof jsonData === 'string') {
                 // 移除安全前缀
                 const cleaned = jsonData.replace(/^\)\]\}'\n?/, '');
@@ -401,7 +401,7 @@ const AUTH_SCRIPT: &str = r#"
                     }
                 }
             }
-            
+
             if (text && text.trim()) {
                 messages.push({
                     role: 'assistant',
@@ -421,11 +421,11 @@ const AUTH_SCRIPT: &str = r#"
     function extractGenericSSEMessages(events) {
         const messages = [];
         let content = '';
-        
+
         for (const event of events) {
             if (event.done) continue;
             const data = event.data;
-            
+
             // 尝试多种常见格式
             if (data?.choices?.[0]?.delta?.content) {
                 content += data.choices[0].delta.content;
@@ -437,7 +437,7 @@ const AUTH_SCRIPT: &str = r#"
                 content += data.content;
             }
         }
-        
+
         if (content && content.trim()) {
             messages.push({
                 role: 'assistant',
@@ -445,7 +445,7 @@ const AUTH_SCRIPT: &str = r#"
                 timestamp: Date.now()
             });
         }
-        
+
         return messages;
     }
 
@@ -455,11 +455,11 @@ const AUTH_SCRIPT: &str = r#"
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
         let requestBodyText = null;
-        
+
         try {
             const request = args[0];
             const options = args[1] || {};
-            
+
             if (options.body && typeof options.body === 'string') {
                 requestBodyText = options.body;
             } else if (request instanceof Request && request.body) {
@@ -467,28 +467,28 @@ const AUTH_SCRIPT: &str = r#"
                 requestBodyText = await clonedReq.text();
             }
         } catch (e) {}
-        
+
         const response = await originalFetch.apply(this, args);
-        
+
         try {
             const url = args[0] instanceof Request ? args[0].url : String(args[0]);
             const apiConfig = getApiConfig();
-            
+
             if (apiConfig && apiConfig.pattern.test(url)) {
                 console.log('[AnyChat] Intercepted API call:', url);
-                
+
                 const clone = response.clone();
-                
+
                 (async () => {
                     try {
                         const contentType = clone.headers.get('content-type') || '';
                         const isSSE = contentType.includes('text/event-stream');
                         const isJSON = contentType.includes('application/json');
-                        
+
                         console.log('[AnyChat] Response type:', contentType, 'isSSE:', isSSE, 'isJSON:', isJSON);
-                        
+
                         let messages = [];
-                        
+
                         if (isSSE) {
                             const events = [];
                             await parseSSEStream(clone.body.getReader(), (event) => {
@@ -501,7 +501,7 @@ const AUTH_SCRIPT: &str = r#"
                             console.log('[AnyChat] JSON response length:', jsonText.length);
                             messages = extractChatGPTHistoryMessages(jsonText);
                         }
-                        
+
                         if (messages.length > 0) {
                             console.log('[AnyChat] Captured messages:', messages.length);
                             await sendToBackend({
@@ -517,7 +517,7 @@ const AUTH_SCRIPT: &str = r#"
         } catch (err) {
             console.log('[AnyChat] Fetch interception error:', err);
         }
-        
+
         return response;
     };
 
@@ -540,7 +540,7 @@ const AUTH_SCRIPT: &str = r#"
         'chat.deepseek.com': {
             container: '.message-item',
             userMessage: '.user-message',
-            assistantMessage: '.assistant-message', 
+            assistantMessage: '.assistant-message',
             content: '.message-content'
         },
         'claude.ai': {
@@ -604,14 +604,14 @@ const AUTH_SCRIPT: &str = r#"
     function captureMessagesFromDOM() {
         const config = getHostConfig();
         if (!config) return;
-        
+
         const messages = [];
         const containers = document.querySelectorAll(config.container);
-        
+
         containers.forEach((container, index) => {
             let role = 'unknown';
             let content = '';
-            
+
             if (config.userMessage && container.querySelector(config.userMessage)) {
                 role = 'user';
                 const contentEl = container.querySelector(config.content) || container.querySelector(config.userMessage);
@@ -621,7 +621,7 @@ const AUTH_SCRIPT: &str = r#"
                 const contentEl = container.querySelector(config.content) || container.querySelector(config.assistantMessage);
                 content = contentEl?.innerText || contentEl?.textContent || '';
             }
-            
+
             if (content && content.trim().length > 0 && role !== 'unknown') {
                 const hash = hashString(content.trim());
                 if (!window.__anychat.capturedHashes.has(hash)) {
@@ -636,7 +636,7 @@ const AUTH_SCRIPT: &str = r#"
                 }
             }
         });
-        
+
         if (messages.length > 0) {
             console.log('[AnyChat] DOM captured', messages.length, 'messages (fallback)');
             sendToBackend({
@@ -653,25 +653,25 @@ const AUTH_SCRIPT: &str = r#"
             console.log('[AnyChat] No DOM config for this site');
             return;
         }
-        
+
         // 如果 API 拦截工作正常，减少 DOM 捕获频率
         let domCaptureInterval = 10000; // 默认 10 秒检查一次
-        
+
         const observer = new MutationObserver(() => {
             // 仅在没有 API 捕获时触发 DOM 捕获
             if (!window.__anychat.ipcAvailable) {
                 setTimeout(captureMessagesFromDOM, 1000);
             }
         });
-        
+
         observer.observe(document.body, {
             childList: true,
             subtree: true
         });
-        
+
         // 初始捕获
         setTimeout(captureMessagesFromDOM, 3000);
-        
+
         console.log('[AnyChat] DOM fallback observer started');
     }
 
@@ -698,7 +698,9 @@ fn should_open_devtools() -> bool {
     }
 }
 
-fn compute_webview_bounds(window: &tauri::Window) -> Result<(PhysicalPosition<i32>, PhysicalSize<u32>), String> {
+fn compute_webview_bounds(
+    window: &tauri::Window,
+) -> Result<(PhysicalPosition<i32>, PhysicalSize<u32>), String> {
     let win_size = window.inner_size().map_err(|e| e.to_string())?;
     let scale = window.scale_factor().unwrap_or(1.0);
 
@@ -723,7 +725,14 @@ fn is_auth_url(url: &str) -> bool {
         "auth0.com",
     ];
 
-    let auth_paths = ["/oauth/", "/auth/", "/authorize", "/login", "/signin", "/o/oauth2"];
+    let auth_paths = [
+        "/oauth/",
+        "/auth/",
+        "/authorize",
+        "/login",
+        "/signin",
+        "/o/oauth2",
+    ];
 
     for domain in &auth_domains {
         if url.contains(domain) {
@@ -773,11 +782,13 @@ fn decide_show_action(is_visible: bool, is_minimized: bool) -> ShowAction {
 
 #[cfg(test)]
 mod tests {
-    use super::{decide_show_action, ShowAction, should_allow_new_window};
+    use super::{decide_show_action, should_allow_new_window, ShowAction};
 
     #[test]
     fn denies_new_window_for_auth_domains() {
-        assert!(!should_allow_new_window("https://accounts.google.com/o/oauth2/v2/auth"));
+        assert!(!should_allow_new_window(
+            "https://accounts.google.com/o/oauth2/v2/auth"
+        ));
     }
 
     #[test]
@@ -792,12 +803,18 @@ mod tests {
 
     #[test]
     fn show_action_show_when_hidden() {
-        assert_eq!(decide_show_action(false, false), ShowAction::ShowAndUnminimize);
+        assert_eq!(
+            decide_show_action(false, false),
+            ShowAction::ShowAndUnminimize
+        );
     }
 
     #[test]
     fn show_action_show_when_minimized() {
-        assert_eq!(decide_show_action(true, true), ShowAction::ShowAndUnminimize);
+        assert_eq!(
+            decide_show_action(true, true),
+            ShowAction::ShowAndUnminimize
+        );
     }
 }
 
@@ -856,10 +873,10 @@ fn show_main_window(app_handle: &tauri::AppHandle) {
             // The window may have been closed/destroyed by the OS. Re-create it on demand.
             let recreate = || {
                 WebviewWindowBuilder::new(app_handle, "main", WebviewUrl::App("index.html".into()))
-                .title("")
-                .inner_size(1200.0, 800.0)
-                .min_inner_size(800.0, 600.0)
-                .build()
+                    .title("")
+                    .inner_size(1200.0, 800.0)
+                    .min_inner_size(800.0, 600.0)
+                    .build()
             };
 
             match recreate() {
@@ -971,7 +988,10 @@ fn create_webview_for_service(
     // Use Window here because the main window hosts multiple webviews (add_child).
     window: &tauri::Window,
 ) -> Result<(), String> {
-    println!("[AnyChat] create_webview_for_service: creating {} -> {}", label, url);
+    println!(
+        "[AnyChat] create_webview_for_service: creating {} -> {}",
+        label, url
+    );
 
     let (pos, size) = compute_webview_bounds(window)?;
 
@@ -1027,16 +1047,10 @@ fn create_webview_for_service(
 
     println!("[AnyChat] create_webview_for_service: calling add_child");
 
-    let webview = window
-        .add_child(
-            webview_builder,
-            pos,
-            size,
-        )
-        .map_err(|e| {
-            println!("[AnyChat] add_child failed: {}", e);
-            e.to_string()
-        })?;
+    let webview = window.add_child(webview_builder, pos, size).map_err(|e| {
+        println!("[AnyChat] add_child failed: {}", e);
+        e.to_string()
+    })?;
 
     // Some platforms/versions may not apply the initial bounds reliably. Enforce once right away.
     let _ = webview.set_position(pos);
@@ -1066,10 +1080,15 @@ fn switch_webview(
     label: String,
     url: String,
 ) -> Result<(), String> {
-    println!("[AnyChat] switch_webview called: label={}, url={}, parent={}", label, url, parent.label());
-    
+    println!(
+        "[AnyChat] switch_webview called: label={}, url={}, parent={}",
+        label,
+        url,
+        parent.label()
+    );
+
     let state = app.state::<AppState>();
-    
+
     {
         let setup_complete = state.setup_complete.lock().unwrap();
         if !*setup_complete {
@@ -1109,7 +1128,10 @@ fn switch_webview(
         let _ = webview.set_focus();
         println!("[AnyChat] Showing webview: {}", label);
     } else {
-        println!("[AnyChat] ERROR: Failed to get webview after creation: {}", label);
+        println!(
+            "[AnyChat] ERROR: Failed to get webview after creation: {}",
+            label
+        );
     }
 
     Ok(())
@@ -1172,9 +1194,10 @@ fn extract_site_icon_url(base_url: &reqwest::Url, html: &str) -> Option<String> 
         let Some(rel_value) = rel_regex
             .captures(tag)
             .and_then(|captures| captures.get(1))
-            .map(|value| value.as_str().to_ascii_lowercase()) else {
-                continue;
-            };
+            .map(|value| value.as_str().to_ascii_lowercase())
+        else {
+            continue;
+        };
 
         if !rel_value.contains("icon") {
             continue;
@@ -1183,9 +1206,10 @@ fn extract_site_icon_url(base_url: &reqwest::Url, html: &str) -> Option<String> 
         let Some(href) = href_regex
             .captures(tag)
             .and_then(|captures| captures.get(1))
-            .map(|value| value.as_str().trim()) else {
-                continue;
-            };
+            .map(|value| value.as_str().trim())
+        else {
+            continue;
+        };
 
         if href.is_empty() || href.starts_with("data:") {
             continue;
@@ -1216,79 +1240,14 @@ struct CapturedMessage {
     source: Option<String>,
 }
 
-#[derive(serde::Serialize, Clone)]
-struct ChatCaptureEvent {
-    service_id: String,
-    messages: Vec<CapturedMessage>,
-}
-
-#[tauri::command]
-async fn capture_chat_message(
-    app: tauri::AppHandle,
-    service_id: String,
-    messages: Vec<CapturedMessage>,
-) -> Result<(), String> {
-    println!(
-        "[AnyChat] capture_chat_message called: service={}, count={}",
-        service_id,
-        messages.len()
-    );
-    
-    for msg in &messages {
-        println!(
-            "[AnyChat] Captured: [{}] {}...",
-            msg.role,
-            msg.content.chars().take(50).collect::<String>()
-        );
-    }
-    
-    app.emit("chat-captured", ChatCaptureEvent {
-        service_id: service_id.clone(),
-        messages: messages.clone(),
-    }).map_err(|e| e.to_string())?;
-    
-    if let Ok(app_data_dir) = std::env::var("HOME") {
-        let log_path = format!(
-            "{}/Library/Application Support/com.anychat.app/captured_chats.jsonl",
-            app_data_dir
-        );
-        
-        let dir_path = format!(
-            "{}/Library/Application Support/com.anychat.app",
-            app_data_dir
-        );
-        let _ = std::fs::create_dir_all(&dir_path);
-        
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-        {
-            use std::io::Write;
-            for msg in messages {
-                let entry = serde_json::json!({
-                    "service_id": service_id,
-                    "role": msg.role,
-                    "content": msg.content,
-                    "external_id": msg.external_id,
-                    "source": msg.source.unwrap_or_else(|| "api".to_string()),
-                    "captured_at": chrono::Utc::now().to_rfc3339()
-                });
-                let _ = writeln!(file, "{}", entry.to_string());
-            }
-        }
-    }
-    
-    Ok(())
-}
-
 #[derive(serde::Deserialize, Clone)]
 struct CapturePayload {
     #[serde(rename = "type")]
     _type: Option<String>,
     #[serde(rename = "serviceId")]
     service_id: String,
-    url: Option<String>,
+    #[serde(rename = "url")]
+    _url: Option<String>,
     messages: Vec<CapturedMessage>,
 }
 
@@ -1296,15 +1255,12 @@ struct CapturePayload {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_sql::Builder::default().build())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_dialog::init())
         .register_uri_scheme_protocol("anychat", |_ctx, request| {
             let path = request.uri().path();
-            
+
             if path == "/capture" {
                 let body = request.body();
-                
+
                 match serde_json::from_slice::<CapturePayload>(body) {
                     Ok(payload) => {
                         println!(
@@ -1312,7 +1268,7 @@ pub fn run() {
                             payload.service_id,
                             payload.messages.len()
                         );
-                        
+
                         for msg in &payload.messages {
                             println!(
                                 "[AnyChat] Message: [{}] {}...",
@@ -1320,41 +1276,9 @@ pub fn run() {
                                 msg.content.chars().take(50).collect::<String>()
                             );
                         }
-                        
-                        if let Ok(home_dir) = std::env::var("HOME") {
-                            let dir_path = format!(
-                                "{}/Library/Application Support/com.anychat.app",
-                                home_dir
-                            );
-                            let _ = std::fs::create_dir_all(&dir_path);
-                            
-                            let log_path = format!(
-                                "{}/Library/Application Support/com.anychat.app/captured_chats.jsonl",
-                                home_dir
-                            );
-                            
-                            if let Ok(mut file) = std::fs::OpenOptions::new()
-                                .create(true)
-                                .append(true)
-                                .open(&log_path)
-                            {
-                                use std::io::Write;
-                                for msg in &payload.messages {
-                                    let entry = serde_json::json!({
-                                        "service_id": payload.service_id,
-                                        "url": payload.url,
-                                        "role": msg.role,
-                                        "content": msg.content,
-                                        "external_id": msg.external_id,
-                                        "source": msg.source.clone().unwrap_or_else(|| "protocol".to_string()),
-                                        "captured_at": chrono::Utc::now().to_rfc3339()
-                                    });
-                                    let _ = writeln!(file, "{}", entry.to_string());
-                                }
-                                println!("[AnyChat] Saved {} messages to JSONL", payload.messages.len());
-                            }
-                        }
-                        
+
+                        println!("[AnyChat] Protocol capture discarded: persistence disabled");
+
                         http::Response::builder()
                             .status(200)
                             .header("Content-Type", "application/json")
@@ -1384,56 +1308,19 @@ pub fn run() {
         })
         .setup(|app| {
             println!("[AnyChat] Setup starting...");
-            
-            let app_handle = app.handle().clone();
+
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
-                    let app_handle_for_route = app_handle.clone();
-                    
                     let cors = warp::cors()
                         .allow_any_origin()
                         .allow_methods(vec!["GET", "POST", "OPTIONS"])
                         .allow_headers(vec!["Content-Type"]);
-                    
+
                     let beacon_route = warp::get()
                         .and(warp::path("beacon"))
                         .and(warp::query::<std::collections::HashMap<String, String>>())
-                        .map(|params: std::collections::HashMap<String, String>| {
-                            if let Some(data) = params.get("d") {
-                                if let Ok(decoded) = urlencoding::decode(data) {
-                                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&decoded) {
-                                        let service_id = payload.get("s").and_then(|v| v.as_str()).unwrap_or("unknown");
-                                        let role = payload.get("r").and_then(|v| v.as_str()).unwrap_or("unknown");
-                                        let content = payload.get("c").and_then(|v| v.as_str()).unwrap_or("");
-                                        
-                                        println!("[AnyChat] Beacon: [{}] {}...", role, content.chars().take(50).collect::<String>());
-                                        
-                                        if let Ok(home_dir) = std::env::var("HOME") {
-                                            let dir_path = format!("{}/Library/Application Support/com.anychat.app", home_dir);
-                                            let _ = std::fs::create_dir_all(&dir_path);
-                                            let log_path = format!("{}/captured_chats.jsonl", dir_path);
-                                            
-                                            if let Ok(mut file) = std::fs::OpenOptions::new()
-                                                .create(true)
-                                                .append(true)
-                                                .open(&log_path)
-                                            {
-                                                use std::io::Write;
-                                                let entry = serde_json::json!({
-                                                    "service_id": service_id,
-                                                    "role": role,
-                                                    "content": content,
-                                                    "source": "beacon",
-                                                    "captured_at": chrono::Utc::now().to_rfc3339()
-                                                });
-                                                let _ = writeln!(file, "{}", entry.to_string());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            
+                        .map(|_params: std::collections::HashMap<String, String>| {
                             let gif_1x1: Vec<u8> = vec![0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b];
                             warp::reply::with_header(
                                 warp::reply::with_status(gif_1x1, warp::http::StatusCode::OK),
@@ -1441,7 +1328,7 @@ pub fn run() {
                                 "image/gif"
                             )
                         });
-                    
+
                     let capture_route = warp::post()
                         .and(warp::path("capture"))
                         .and(warp::body::json::<CapturePayload>())
@@ -1451,7 +1338,7 @@ pub fn run() {
                                 payload.service_id,
                                 payload.messages.len()
                             );
-                            
+
                             for msg in &payload.messages {
                                 println!(
                                     "[AnyChat] Message: [{}] {}...",
@@ -1459,73 +1346,34 @@ pub fn run() {
                                     msg.content.chars().take(50).collect::<String>()
                                 );
                             }
-                            
-                            let _ = app_handle_for_route.emit(
-                                "chat-captured",
-                                ChatCaptureEvent {
-                                    service_id: payload.service_id.clone(),
-                                    messages: payload.messages.clone(),
-                                },
-                            );
-                            
-                            if let Ok(home_dir) = std::env::var("HOME") {
-                                let dir_path = format!(
-                                    "{}/Library/Application Support/com.anychat.app",
-                                    home_dir
-                                );
-                                let _ = std::fs::create_dir_all(&dir_path);
-                                
-                                let log_path = format!(
-                                    "{}/Library/Application Support/com.anychat.app/captured_chats.jsonl",
-                                    home_dir
-                                );
-                                
-                                if let Ok(mut file) = std::fs::OpenOptions::new()
-                                    .create(true)
-                                    .append(true)
-                                    .open(&log_path)
-                                {
-                                    use std::io::Write;
-                                    for msg in &payload.messages {
-                                        let entry = serde_json::json!({
-                                            "service_id": payload.service_id,
-                                            "url": payload.url,
-                                            "role": msg.role,
-                                            "content": msg.content,
-                                            "external_id": msg.external_id,
-                                            "source": msg.source.clone().unwrap_or_else(|| "http".to_string()),
-                                            "captured_at": chrono::Utc::now().to_rfc3339()
-                                        });
-                                        let _ = writeln!(file, "{}", entry.to_string());
-                                    }
-                                }
-                            }
-                            
+
+                            println!("[AnyChat] HTTP capture discarded: persistence disabled");
+
                             warp::reply::json(&serde_json::json!({"status": "ok"}))
                         })
                         .with(cors.clone());
-                    
+
                     let routes = beacon_route.or(capture_route);
-                    
+
                     println!("[AnyChat] Starting HTTP server on 127.0.0.1:33445");
                     warp::serve(routes)
                         .run(([127, 0, 0, 1], 33445))
                         .await;
                 });
             });
-            
+
             let app_handle_for_polling = app.handle().clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(5));
                 println!("[AnyChat] Queue polling started");
-                
+
                 loop {
                     std::thread::sleep(std::time::Duration::from_secs(3));
-                    
+
                     let state = app_handle_for_polling.state::<AppState>();
                     let created = state.created_webviews.lock().unwrap().clone();
                     drop(state);
-                    
+
                     for label in created.iter() {
                         if let Some(webview) = app_handle_for_polling.get_webview(label) {
                             let js_code = r#"
@@ -1535,7 +1383,7 @@ pub fn run() {
                                     }
                                     const entries = window.__anychatQueue;
                                     window.__anychatQueue = [];
-                                    
+
                                     entries.forEach(entry => {
                                         entry.messages.forEach(msg => {
                                             const payload = {
@@ -1557,7 +1405,7 @@ pub fn run() {
                     }
                 }
             });
-            
+
             let main_webview_window = match WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -1751,8 +1599,7 @@ pub fn run() {
             discover_site_icon,
             switch_webview,
             refresh_webview,
-            hide_all_webviews,
-            capture_chat_message
+            hide_all_webviews
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

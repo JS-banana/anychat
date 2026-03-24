@@ -180,8 +180,8 @@ describe('AppStore', () => {
     it('should set settings active tab', () => {
       const { setSettingsActiveTab } = useAppStore.getState();
 
-      setSettingsActiveTab('data');
-      expect(useAppStore.getState().settingsActiveTab).toBe('data');
+      setSettingsActiveTab('services');
+      expect(useAppStore.getState().settingsActiveTab).toBe('services');
 
       setSettingsActiveTab('about');
       expect(useAppStore.getState().settingsActiveTab).toBe('about');

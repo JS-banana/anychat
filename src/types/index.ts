@@ -9,24 +9,6 @@ export interface ChatService {
   isBuiltin?: boolean;
 }
 
-export interface ChatMessage {
-  id: string;
-  serviceId: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: number;
-  conversationId?: string;
-}
-
-export interface Conversation {
-  id: string;
-  serviceId: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-  messageCount: number;
-}
-
 export const DEFAULT_SERVICES: ChatService[] = [
   {
     id: 'chatgpt',

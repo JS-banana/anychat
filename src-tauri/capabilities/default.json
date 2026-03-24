@@ -21,17 +21,6 @@
     "core:webview:default",
     "core:webview:allow-create-webview-window",
     "core:webview:allow-webview-close",
-    "opener:default",
-    "sql:default",
-    "sql:allow-load",
-    "sql:allow-execute",
-    "sql:allow-select",
-    "sql:allow-close",
-    "fs:default",
-    "fs:allow-app-read-recursive",
-    "fs:allow-app-write-recursive",
-    "dialog:default",
-    "dialog:allow-open",
-    "dialog:allow-save"
+    "opener:default"
   ]
 }
