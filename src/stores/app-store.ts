@@ -108,6 +108,7 @@ export const useAppStore = create<AppState>()(
           if (saved) {
             return {
               ...defaultService,
+              iconUrl: saved.iconUrl ?? defaultService.iconUrl,
               enabled: saved.enabled,
               order: saved.order,
             };

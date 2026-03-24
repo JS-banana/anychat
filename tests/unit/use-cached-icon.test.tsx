@@ -2,10 +2,11 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCachedIcon } from '@/hooks/useCachedIcon';
-import { resolveServiceIconCandidates } from '@/lib/icon';
+import { getServiceIconCandidates, resolveServiceIconCandidates } from '@/lib/icon';
 import { getCachedIcon, cacheIcon } from '@/lib/icon-cache';
 
 vi.mock('@/lib/icon', () => ({
+  getServiceIconCandidates: vi.fn(),
   resolveServiceIconCandidates: vi.fn(),
 }));
 
@@ -18,10 +19,15 @@ describe('useCachedIcon', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(invoke).mockResolvedValue(null);
+    vi.mocked(getServiceIconCandidates).mockReturnValue([]);
   });
 
   it('should fall back to the first candidate URL when caching fetches all fail', async () => {
     vi.mocked(resolveServiceIconCandidates).mockResolvedValue([
+      'https://example.com/favicon.svg',
+      'https://example.com/favicon.ico',
+    ]);
+    vi.mocked(getServiceIconCandidates).mockReturnValue([
       'https://example.com/favicon.svg',
       'https://example.com/favicon.ico',
     ]);
@@ -47,6 +53,11 @@ describe('useCachedIcon', () => {
 
   it('should advance to the next candidate when the current image source errors', async () => {
     vi.mocked(resolveServiceIconCandidates).mockResolvedValue([
+      'https://example.com/favicon.svg',
+      'https://example.com/favicon.ico',
+      'https://www.google.com/s2/favicons?domain=example.com&sz=64',
+    ]);
+    vi.mocked(getServiceIconCandidates).mockReturnValue([
       'https://example.com/favicon.svg',
       'https://example.com/favicon.ico',
       'https://www.google.com/s2/favicons?domain=example.com&sz=64',
@@ -80,6 +91,10 @@ describe('useCachedIcon', () => {
 
   it('reports the resolved candidate URL after a fallback image loads successfully', async () => {
     vi.mocked(resolveServiceIconCandidates).mockResolvedValue([
+      'https://example.com/favicon.svg',
+      'https://example.com/favicon.ico',
+    ]);
+    vi.mocked(getServiceIconCandidates).mockReturnValue([
       'https://example.com/favicon.svg',
       'https://example.com/favicon.ico',
     ]);
@@ -118,6 +133,10 @@ describe('useCachedIcon', () => {
       'https://aistudio.xiaomimimo.com/favicon.0619b0d2.png',
       'https://www.google.com/s2/favicons?domain=aistudio.xiaomimimo.com&sz=64',
     ]);
+    vi.mocked(getServiceIconCandidates).mockReturnValue([
+      'https://aistudio.xiaomimimo.com/favicon.0619b0d2.png',
+      'https://www.google.com/s2/favicons?domain=aistudio.xiaomimimo.com&sz=64',
+    ]);
     vi.mocked(getCachedIcon).mockResolvedValue(null);
 
     const fetchMock = vi.fn().mockResolvedValue({
@@ -139,6 +158,10 @@ describe('useCachedIcon', () => {
 
   it('should skip non-image response and continue trying next candidate', async () => {
     vi.mocked(resolveServiceIconCandidates).mockResolvedValue([
+      'https://example.com/not-image',
+      'https://example.com/real-image',
+    ]);
+    vi.mocked(getServiceIconCandidates).mockReturnValue([
       'https://example.com/not-image',
       'https://example.com/real-image',
     ]);
@@ -177,5 +200,39 @@ describe('useCachedIcon', () => {
       'https://example.com/real-image',
       expect.stringMatching(/^data:image\//)
     );
+  });
+
+  it('should show the known explicit icon immediately while cache lookup is still running', async () => {
+    let resolveCandidates: ((value: string[]) => void) | undefined;
+    const explicitIconUrl = 'https://cdn.example.com/icon.svg';
+
+    vi.mocked(resolveServiceIconCandidates).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCandidates = resolve;
+        })
+    );
+    vi.mocked(getServiceIconCandidates).mockReturnValue([explicitIconUrl]);
+    vi.mocked(getCachedIcon).mockResolvedValue(null);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        blob: vi.fn(),
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useCachedIcon('svc-immediate-explicit', 'https://example.com', explicitIconUrl)
+    );
+
+    expect(result.current.iconSrc).toBe(explicitIconUrl);
+    expect(result.current.loading).toBe(true);
+
+    resolveCandidates?.([explicitIconUrl]);
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
   });
 });

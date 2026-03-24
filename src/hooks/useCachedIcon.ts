@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getCachedIcon, cacheIcon } from '@/lib/icon-cache';
-import { resolveServiceIconCandidates } from '@/lib/icon';
+import { getServiceIconCandidates, resolveServiceIconCandidates } from '@/lib/icon';
 
 interface CachedIconState {
   url: string | null;
@@ -13,6 +13,21 @@ interface CachedIconState {
 
 const iconStateCache = new Map<string, CachedIconState>();
 const loadingPromises = new Map<string, Promise<CachedIconState>>();
+
+function createInitialIconState(serviceUrl: string, iconUrl: string | undefined): CachedIconState {
+  const candidates = getServiceIconCandidates(serviceUrl, iconUrl);
+  const initialUrl = candidates[0] ?? null;
+  const initialIndex = initialUrl ? 0 : -1;
+
+  return {
+    url: initialUrl,
+    loading: candidates.length > 0,
+    candidateIndex: initialIndex,
+    candidateUrl: initialUrl,
+    resolved: false,
+    candidates,
+  };
+}
 
 async function tryFetchAndCache(url: string): Promise<string | null> {
   const cached = await getCachedIcon(url);
@@ -99,16 +114,7 @@ export function useCachedIcon(
 
   const [state, setState] = useState<CachedIconState>(() => {
     const cached = iconStateCache.get(cacheKey);
-    return (
-      cached || {
-        url: null,
-        loading: true,
-        candidateIndex: -1,
-        candidateUrl: null,
-        resolved: false,
-        candidates: [],
-      }
-    );
+    return cached || createInitialIconState(serviceUrl, iconUrl);
   });
 
   const reportResolvedCandidate = useCallback((candidateUrl: string | null) => {

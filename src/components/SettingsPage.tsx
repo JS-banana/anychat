@@ -71,7 +71,6 @@ function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceIte
     onLoad,
   } = useCachedIcon(service.id, service.url, service.iconUrl, {
     onResolvedCandidate: (resolvedIconUrl) => {
-      if (!service.id.startsWith('custom-')) return;
       if (resolvedIconUrl === service.iconUrl) return;
       updateService(service.id, { iconUrl: resolvedIconUrl });
     },
