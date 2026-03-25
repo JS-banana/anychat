@@ -12,9 +12,10 @@ dist
 dist-ssr
 .sisyphus
 .vscode
-docs/*
-!docs/plans/
-!docs/plans/**
+.agents
+.codex
+.opencode
+docs
 *.local
 .worktrees
 

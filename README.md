@@ -18,9 +18,9 @@
 
 AnyChat 是一个聚合了多个 AI 聊天服务的桌面应用，旨在提供统一入口与低占用的桌面端体验。它让你能在一个窗口中无缝切换不同的 AI 服务，专注于高性能、轻量化的日常使用。
 
-> 迁移说明
->
-> `2026-03-21` 起，原 `electron` 主线已经拆分为独立项目 **AmberKeeper**，后续 Electron 相关开发与维护统一迁移到 `https://github.com/JS-banana/amberkeeper`。当前 `anyChat` 仓库回归 Web/Tauri 主线。
+如果您需要更强大的聊天数据本地获取和管理功能，推荐使用：
+
+[![AmberKeeper](https://img.shields.io/badge/AmberKeeper-Go_to_App-blue?style=for-the-badge)](https://github.com/JS-banana/amberkeeper)
 
 ## 界面
 
