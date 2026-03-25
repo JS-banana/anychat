@@ -18,9 +18,9 @@
 
 AnyChat 是一个聚合了多个 AI 聊天服务的桌面应用，旨在提供统一入口与低占用的桌面端体验。它让你能在一个窗口中无缝切换不同的 AI 服务，专注于高性能、轻量化的日常使用。
 
-如果您需要更强大的聊天数据本地获取和管理功能，推荐使用：
+> 如果您需要更强大的聊天数据本地获取和管理功能，推荐使用：[AmberKeeper](https://github.com/JS-banana/amberkeeper)
 
-[![AmberKeeper](https://img.shields.io/badge/AmberKeeper-Go_to_App-blue?style=for-the-badge)](https://github.com/JS-banana/amberkeeper)
+> 如果 Mac 安装打开后提示 `“AnyChat”已损坏，无法打开。`，执行下 `xattr -rd com.apple.quarantine /Applications/AnyChat.app` 这个命令。
 
 ## 界面
 
