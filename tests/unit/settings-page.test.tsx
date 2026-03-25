@@ -68,7 +68,10 @@ describe('SettingsPage', () => {
   it('shows one-click project links for AnyChat and AmberKeeper in the about view', async () => {
     render(<SettingsPage />);
 
-    expect(screen.getByText(/如果你更关注数据管理和存储/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/聊天数据采集、本地存储等能力已经迁移到 AmberKeeper/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/如果你更关注数据管理和存储/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /访问 AnyChat 项目/i }));
     expect(mockOpenUrl).toHaveBeenCalledWith('https://github.com/JS-banana/anychat');

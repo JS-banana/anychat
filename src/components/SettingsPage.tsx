@@ -346,8 +346,8 @@ export function SettingsPage() {
                   桌面端使用方式。
                 </p>
                 <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
-                  如果你更关注数据管理和存储，可以使用 AmberKeeper。它是从原 Electron
-                  主线拆分出的独立项目， 会继续承接相关能力。
+                  聊天数据采集、本地存储等能力已经迁移到 AmberKeeper。AnyChat
+                  只保留网页聚合与服务管理主线，后续也将围绕多 Web 体验继续迭代。
                 </p>
               </motion.section>
 
@@ -360,7 +360,7 @@ export function SettingsPage() {
                 />
                 <AboutCard
                   title="AmberKeeper"
-                  description="如果你需要数据管理、存储和沉淀能力，请前往 AmberKeeper 项目。"
+                  description="聊天数据采集、本地存储与后续沉淀能力，统一转由 AmberKeeper 承接。"
                   buttonLabel="查看 AmberKeeper"
                   href={AMBERKEEPER_REPO_URL}
                 />
