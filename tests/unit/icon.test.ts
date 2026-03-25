@@ -168,4 +168,13 @@ describe('getServiceIconCandidates', () => {
       'https://www.google.com/s2/favicons?domain=aistudio.xiaomimimo.com&sz=64'
     );
   });
+
+  it('should skip site discovery when a first-party explicit icon is already known', async () => {
+    const explicitUrl = 'https://cdn.oaistatic.com/assets/favicon-o20kmmos.svg';
+
+    const candidates = await resolveServiceIconCandidates('https://chatgpt.com', explicitUrl);
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(candidates[0]).toBe(explicitUrl);
+  });
 });

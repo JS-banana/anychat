@@ -92,6 +92,12 @@ export async function resolveServiceIconCandidates(
   explicitIconUrl?: string
 ): Promise<string[]> {
   const baseCandidates = getServiceIconCandidates(serviceUrl, explicitIconUrl);
+  const hasStableExplicitIcon = !!explicitIconUrl && !isThirdPartyFallbackIcon(explicitIconUrl);
+
+  if (hasStableExplicitIcon) {
+    return baseCandidates;
+  }
+
   const discoveredIconUrl = await discoverSiteIcon(serviceUrl);
 
   if (!discoveredIconUrl || baseCandidates.includes(discoveredIconUrl)) {

@@ -4,6 +4,7 @@ import { DEFAULT_SERVICES } from '@/types';
 
 describe('AppStore', () => {
   beforeEach(() => {
+    localStorage.clear();
     useAppStore.setState({
       services: [...DEFAULT_SERVICES],
       activeServiceId: DEFAULT_SERVICES.find((s) => s.enabled)?.id ?? null,
@@ -180,11 +181,37 @@ describe('AppStore', () => {
     it('should set settings active tab', () => {
       const { setSettingsActiveTab } = useAppStore.getState();
 
-      setSettingsActiveTab('data');
-      expect(useAppStore.getState().settingsActiveTab).toBe('data');
+      setSettingsActiveTab('services');
+      expect(useAppStore.getState().settingsActiveTab).toBe('services');
 
       setSettingsActiveTab('about');
       expect(useAppStore.getState().settingsActiveTab).toBe('about');
+    });
+  });
+
+  describe('persist merge', () => {
+    it('should preserve persisted iconUrl for built-in services after rehydration', async () => {
+      const persistedServices = DEFAULT_SERVICES.map((service) =>
+        service.id === 'claude'
+          ? { ...service, iconUrl: 'https://claude.ai/favicon.ico' }
+          : { ...service }
+      );
+
+      localStorage.setItem(
+        'chat-box-app-storage',
+        JSON.stringify({
+          state: {
+            services: persistedServices,
+            activeServiceId: DEFAULT_SERVICES.find((s) => s.enabled)?.id ?? null,
+          },
+          version: 0,
+        })
+      );
+
+      await useAppStore.persist.rehydrate();
+
+      const claudeService = useAppStore.getState().services.find((service) => service.id === 'claude');
+      expect(claudeService?.iconUrl).toBe('https://claude.ai/favicon.ico');
     });
   });
 });

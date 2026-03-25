@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -6,7 +6,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  DragEndEvent,
+  type DragEndEvent,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -15,50 +15,38 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import {
+  Bot,
+  Brain,
+  CircleDot,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Globe,
+  GripVertical,
+  Info,
+  Loader2,
+  MessageSquare,
+  Plus,
+  Settings,
+  Sparkles,
+  Trash2,
+  Zap,
+} from 'lucide-react';
+import { motion } from 'framer-motion';
 import { useAppStore } from '@/stores/app-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Settings,
-  Database,
-  Info,
-  Eye,
-  EyeOff,
-  GripVertical,
-  Trash2,
-  Plus,
-  Loader2,
-  Save,
-  Download,
-  Search,
-  Calendar,
-  X,
-  MessageSquare,
-  Bot,
-  Brain,
-  Sparkles,
-  Zap,
-  Globe,
-  CircleDot,
-} from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { findWorkingIconCandidate, normalizeServiceUrl } from '@/lib/icon';
 import { useCachedIcon } from '@/hooks/useCachedIcon';
-import { ChatService } from '@/types';
-import { exportAllData } from '@/services/import-export';
-import {
-  getSessions,
-  getMessages,
-  deleteSession,
-  searchMessages,
-  ChatSession,
-  ChatMessage,
-} from '@/services/database';
-import { createBackup } from '@/services/backup';
-import { motion, AnimatePresence } from 'framer-motion';
+import type { ChatService } from '@/types';
 
-// 预设图标列表
+const ANYCHAT_REPO_URL = 'https://github.com/JS-banana/anychat';
+const AMBERKEEPER_REPO_URL = 'https://github.com/JS-banana/AmberKeeper';
+
 const PRESET_ICONS = [
   { id: 'message', Icon: MessageSquare, label: '聊天' },
   { id: 'bot', Icon: Bot, label: '机器人' },
@@ -67,9 +55,7 @@ const PRESET_ICONS = [
   { id: 'zap', Icon: Zap, label: '闪电' },
   { id: 'globe', Icon: Globe, label: '地球' },
   { id: 'circle', Icon: CircleDot, label: '圆点' },
-];
-
-// --- Sub-components for Services Tab ---
+] as const;
 
 interface SortableServiceItemProps {
   service: ChatService;
@@ -79,32 +65,28 @@ interface SortableServiceItemProps {
 
 function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceItemProps) {
   const updateService = useAppStore((state) => state.updateService);
-  const { iconSrc: iconUrl, onError, onLoad } = useCachedIcon(
-    service.id,
-    service.url,
-    service.iconUrl,
-    {
-      onResolvedCandidate: (resolvedIconUrl) => {
-        if (!service.id.startsWith('custom-')) return;
-        if (resolvedIconUrl === service.iconUrl) return;
-        updateService(service.id, { iconUrl: resolvedIconUrl });
-      },
-    }
-  );
+  const {
+    iconSrc: iconUrl,
+    onError,
+    onLoad,
+  } = useCachedIcon(service.id, service.url, service.iconUrl, {
+    onResolvedCandidate: (resolvedIconUrl) => {
+      if (resolvedIconUrl === service.iconUrl) return;
+      updateService(service.id, { iconUrl: resolvedIconUrl });
+    },
+  });
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: service.id,
   });
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
       className={cn(
         'flex items-center gap-3 rounded-lg border p-3 transition-colors',
         service.enabled ? 'border-border bg-card' : 'border-border/50 bg-muted/30 opacity-60',
@@ -154,7 +136,34 @@ function SortableServiceItem({ service, onToggle, onRemove }: SortableServiceIte
   );
 }
 
-// --- Main Settings Page Component ---
+function AboutCard({
+  title,
+  description,
+  buttonLabel,
+  href,
+}: {
+  title: string;
+  description: string;
+  buttonLabel: string;
+  href: string;
+}) {
+  return (
+    <div className="rounded-2xl border bg-card p-5 text-card-foreground">
+      <div className="space-y-2">
+        <h3 className="text-base font-semibold">{title}</h3>
+        <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+      </div>
+      <Button
+        variant="outline"
+        className="mt-4 w-full justify-between"
+        onClick={() => openUrl(href).catch(console.error)}
+      >
+        {buttonLabel}
+        <ExternalLink className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
 
 export function SettingsPage() {
   const {
@@ -175,21 +184,7 @@ export function SettingsPage() {
   const [selectedPresetIcon, setSelectedPresetIcon] = useState<string | null>(null);
   const [logoLoading, setLogoLoading] = useState(false);
 
-  // Data Management State
-  const [exporting, setExporting] = useState(false);
-  const [backingUp, setBackingUp] = useState(false);
-
-  // History State
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<ChatMessage[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-
   const sortedServices = [...services].sort((a, b) => a.order - b.order);
-
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
@@ -198,188 +193,53 @@ export function SettingsPage() {
   );
 
   useEffect(() => {
-    if (settingsPageOpen && settingsActiveTab === 'data') {
-      loadSessions();
-    }
-  }, [settingsPageOpen, settingsActiveTab]);
-
-  useEffect(() => {
-    if (selectedSession) {
-      loadMessages(selectedSession.id);
-    }
-  }, [selectedSession]);
-
-  useEffect(() => {
     const timer = setTimeout(() => {
-      if (searchQuery.trim()) {
-        handleSearch();
-      } else {
-        setSearchResults([]);
-        setIsSearching(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  const loadSessions = async () => {
-    setLoadingHistory(true);
-    try {
-      const data = await getSessions();
-      setSessions(data);
-    } catch (err) {
-      console.error('Failed to load sessions:', err);
-    } finally {
-      setLoadingHistory(false);
-    }
-  };
-
-  const loadMessages = async (sessionId: string) => {
-    try {
-      const data = await getMessages(sessionId);
-      setMessages(data);
-    } catch (err) {
-      console.error('Failed to load messages:', err);
-    }
-  };
-
-  const handleSearch = async () => {
-    setIsSearching(true);
-    try {
-      const results = await searchMessages(searchQuery);
-      setSearchResults(results);
-    } catch (err) {
-      console.error('Search failed:', err);
-    }
-  };
-
-  const handleDeleteSession = async (sessionId: string) => {
-    try {
-      await deleteSession(sessionId);
-      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-      if (selectedSession?.id === sessionId) {
-        setSelectedSession(null);
-        setMessages([]);
-      }
-    } catch (err) {
-      console.error('Failed to delete session:', err);
-    }
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      const oldIndex = sortedServices.findIndex((s) => s.id === active.id);
-      const newIndex = sortedServices.findIndex((s) => s.id === over.id);
-      reorderServices(oldIndex, newIndex);
-    }
-  };
-
-  const handleBackup = async () => {
-    setBackingUp(true);
-    try {
-      await createBackup();
-      alert('备份创建成功！');
-    } catch (err) {
-      console.error('Backup failed:', err);
-      alert('备份失败');
-    } finally {
-      setBackingUp(false);
-    }
-  };
-
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      const data = await exportAllData();
-      const blob = new Blob([data], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `chatbox-backup-${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Export failed:', err);
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const handleExportSession = (session: ChatSession) => {
-    const exportData = {
-      session,
-      messages,
-      exportedAt: new Date().toISOString(),
-    };
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `chat-${session.title.slice(0, 30)}-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp * 1000).toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
-
-  const isValidUrl = (url: string) => {
-    try {
-      new URL(url.startsWith('http') ? url : `https://${url}`);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const fetchLogo = async (url: string) => {
-    setLogoLoading(true);
-    setFetchedLogoUrl(null);
-    const normalizedUrl = normalizeServiceUrl(url);
-
-    if (!normalizedUrl) {
-      setLogoLoading(false);
-      return;
-    }
-
-    const detectedLogoUrl = await findWorkingIconCandidate(normalizedUrl);
-    setFetchedLogoUrl(detectedLogoUrl);
-    setLogoLoading(false);
-  };
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (newServiceUrl && isValidUrl(newServiceUrl)) {
-        fetchLogo(newServiceUrl);
-      } else {
+      if (!newServiceUrl) {
         setFetchedLogoUrl(null);
+        return;
       }
+
+      const normalized = normalizeServiceUrl(newServiceUrl);
+      if (!normalized) {
+        setFetchedLogoUrl(null);
+        return;
+      }
+
+      setLogoLoading(true);
+      void findWorkingIconCandidate(normalized)
+        .then((detectedLogoUrl) => {
+          setFetchedLogoUrl(detectedLogoUrl);
+        })
+        .finally(() => {
+          setLogoLoading(false);
+        });
     }, 500);
+
     return () => clearTimeout(timer);
   }, [newServiceUrl]);
 
-  const handleAddService = () => {
-    if (newServiceName.trim() && newServiceUrl.trim()) {
-      const url = normalizeServiceUrl(newServiceUrl);
-      if (!url) return;
-      addService({
-        name: newServiceName.trim(),
-        url,
-        enabled: true,
-        iconUrl: fetchedLogoUrl || undefined,
-      });
-      resetAddForm();
-    }
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = sortedServices.findIndex((service) => service.id === active.id);
+    const newIndex = sortedServices.findIndex((service) => service.id === over.id);
+    reorderServices(oldIndex, newIndex);
   };
 
-  const resetAddForm = () => {
+  const handleAddService = () => {
+    if (!newServiceName.trim() || !newServiceUrl.trim()) return;
+
+    const normalizedUrl = normalizeServiceUrl(newServiceUrl);
+    if (!normalizedUrl) return;
+
+    addService({
+      name: newServiceName.trim(),
+      url: normalizedUrl,
+      enabled: true,
+      iconUrl: fetchedLogoUrl || undefined,
+    });
+
     setNewServiceName('');
     setNewServiceUrl('');
     setFetchedLogoUrl(null);
@@ -387,19 +247,20 @@ export function SettingsPage() {
     setShowAddDialog(false);
   };
 
-  if (!settingsPageOpen) return null;
+  if (!settingsPageOpen) {
+    return null;
+  }
 
   return (
     <div className="flex h-full w-full bg-background text-foreground animate-in fade-in duration-200">
-      {/* Left Sidebar */}
-      <div className="w-64 flex-none border-r bg-muted/30 flex flex-col pt-4">
-        <nav className="flex-1 p-2 space-y-1">
+      <div className="flex w-64 flex-none flex-col border-r bg-muted/30 pt-4">
+        <nav className="flex-1 space-y-1 p-2">
           <button
             onClick={() => setSettingsActiveTab('services')}
             className={cn(
-              'w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors',
+              'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
               settingsActiveTab === 'services'
-                ? 'bg-primary/10 text-primary border-l-2 border-primary'
+                ? 'border-l-2 border-primary bg-primary/10 text-primary'
                 : 'text-muted-foreground hover:bg-muted hover:text-foreground'
             )}
           >
@@ -408,24 +269,11 @@ export function SettingsPage() {
           </button>
 
           <button
-            onClick={() => setSettingsActiveTab('data')}
-            className={cn(
-              'w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors',
-              settingsActiveTab === 'data'
-                ? 'bg-primary/10 text-primary border-l-2 border-primary'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-          >
-            <Database className="h-4 w-4" />
-            数据管理
-          </button>
-
-          <button
             onClick={() => setSettingsActiveTab('about')}
             className={cn(
-              'w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors',
+              'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
               settingsActiveTab === 'about'
-                ? 'bg-primary/10 text-primary border-l-2 border-primary'
+                ? 'border-l-2 border-primary bg-primary/10 text-primary'
                 : 'text-muted-foreground hover:bg-muted hover:text-foreground'
             )}
           >
@@ -435,15 +283,14 @@ export function SettingsPage() {
         </nav>
       </div>
 
-      {/* Right Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-background">
+      <div className="flex flex-1 flex-col overflow-hidden bg-background">
         {settingsActiveTab === 'services' && (
           <div className="flex-1 overflow-y-auto p-8 max-w-3xl [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
-            <div className="flex items-center justify-between mb-6">
+            <div className="mb-6 flex items-center justify-between">
               <div>
                 <h1 className="text-2xl font-bold">服务管理</h1>
-                <p className="text-sm text-muted-foreground mt-1">
-                  拖拽排序服务。点击眼睛图标切换显示/隐藏。
+                <p className="mt-1 text-sm text-muted-foreground">
+                  拖拽排序服务。点击眼睛图标切换显示或隐藏。
                 </p>
               </div>
               <Button onClick={() => setShowAddDialog(true)}>
@@ -451,320 +298,128 @@ export function SettingsPage() {
                 添加服务
               </Button>
             </div>
-            <div className="space-y-6">
-              <div>
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext
-                    items={sortedServices.map((s) => s.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-2">
-                      {sortedServices.map((service) => (
-                        <SortableServiceItem
-                          key={service.id}
-                          service={service}
-                          onToggle={() => toggleServiceEnabled(service.id)}
-                          onRemove={() => removeService(service.id)}
-                        />
-                      ))}
-                    </div>
-                  </SortableContext>
-                </DndContext>
-              </div>
-            </div>
-          </div>
-        )}
 
-        {settingsActiveTab === 'data' && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="p-6 border-b bg-background z-10">
-              <div className="flex items-center justify-between mb-4">
-                <h1 className="text-2xl font-bold">数据管理</h1>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={handleBackup} disabled={backingUp}>
-                    {backingUp ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="mr-2 h-4 w-4" />
-                    )}
-                    立即备份
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
-                    {exporting ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Download className="mr-2 h-4 w-4" />
-                    )}
-                    导出全部
-                  </Button>
-                </div>
-              </div>
-              <p className="text-sm text-muted-foreground">管理您的聊天记录、备份和数据导出。</p>
-            </div>
-
-            <div className="flex-1 flex overflow-hidden">
-              {/* Session List */}
-              <div className="w-80 flex-none border-r flex flex-col bg-muted/10">
-                <div className="p-3 border-b">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="搜索消息..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9 bg-background"
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={sortedServices.map((service) => service.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-2">
+                  {sortedServices.map((service) => (
+                    <SortableServiceItem
+                      key={service.id}
+                      service={service}
+                      onToggle={() => toggleServiceEnabled(service.id)}
+                      onRemove={() => removeService(service.id)}
                     />
-                    {searchQuery && (
-                      <button
-                        onClick={() => setSearchQuery('')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2"
-                      >
-                        <X className="h-4 w-4 text-muted-foreground" />
-                      </button>
-                    )}
-                  </div>
+                  ))}
                 </div>
-
-                <div className="flex-1 overflow-y-auto">
-                  {loadingHistory ? (
-                    <div className="p-8 text-center text-muted-foreground">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-                      加载中...
-                    </div>
-                  ) : isSearching ? (
-                    <div className="p-2">
-                      <p className="text-xs text-muted-foreground px-2 py-1">
-                        找到 {searchResults.length} 条结果
-                      </p>
-                      {searchResults.map((msg) => (
-                        <div
-                          key={msg.id}
-                          className="p-3 mb-2 rounded-lg bg-background border hover:border-primary/50 cursor-pointer text-sm transition-all"
-                        >
-                          <p className="line-clamp-2 font-medium">{msg.content}</p>
-                          <p className="text-xs text-muted-foreground mt-2 flex items-center justify-between">
-                            <span>{formatDate(msg.created_at)}</span>
-                            <span className="capitalize bg-muted px-1.5 py-0.5 rounded text-[10px]">
-                              {msg.role}
-                            </span>
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : sessions.length === 0 ? (
-                    <div className="p-8 text-center text-muted-foreground flex flex-col items-center">
-                      <MessageSquare className="h-8 w-8 mb-3 opacity-20" />
-                      <p>暂无聊天记录</p>
-                    </div>
-                  ) : (
-                    <div className="divide-y">
-                      {sessions.map((session) => (
-                        <div
-                          key={session.id}
-                          className={cn(
-                            'p-3 cursor-pointer transition-all hover:bg-muted/50',
-                            selectedSession?.id === session.id
-                              ? 'bg-muted border-l-2 border-primary pl-[10px]'
-                              : 'pl-3'
-                          )}
-                          onClick={() => setSelectedSession(session)}
-                        >
-                          <div className="flex items-start justify-between mb-1">
-                            <p
-                              className={cn(
-                                'font-medium truncate text-sm',
-                                selectedSession?.id === session.id && 'text-primary'
-                              )}
-                            >
-                              {session.title}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <Calendar className="h-3 w-3" />
-                            {formatDate(session.updated_at)}
-                            <span>·</span>
-                            <span>{session.message_count} 条消息</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Chat View */}
-              <div className="flex-1 flex flex-col bg-background">
-                {selectedSession ? (
-                  <>
-                    <div className="h-14 flex items-center justify-between px-6 border-b flex-none">
-                      <div>
-                        <h3 className="font-medium truncate max-w-md">{selectedSession.title}</h3>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleExportSession(selectedSession)}
-                          title="导出会话"
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          onClick={() => handleDeleteSession(selectedSession.id)}
-                          title="删除会话"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                      <AnimatePresence>
-                        {messages.map((msg, idx) => (
-                          <motion.div
-                            key={msg.id}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: idx * 0.02 }}
-                            className={cn(
-                              'flex w-full',
-                              msg.role === 'user' ? 'justify-end' : 'justify-start'
-                            )}
-                          >
-                            <div
-                              className={cn(
-                                'max-w-[80%] rounded-2xl p-4 text-sm',
-                                msg.role === 'user'
-                                  ? 'bg-primary text-primary-foreground rounded-br-sm'
-                                  : 'bg-muted text-foreground rounded-bl-sm'
-                              )}
-                            >
-                              <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-                              <p
-                                className={cn(
-                                  'text-[10px] mt-2 opacity-70',
-                                  msg.role === 'user'
-                                    ? 'text-primary-foreground/80'
-                                    : 'text-muted-foreground'
-                                )}
-                              >
-                                {new Date(msg.created_at * 1000).toLocaleTimeString([], {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </p>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
-                    <MessageSquare className="h-12 w-12 mb-4 opacity-10" />
-                    <p>选择会话查看历史</p>
-                  </div>
-                )}
-              </div>
-            </div>
+              </SortableContext>
+            </DndContext>
           </div>
         )}
 
         {settingsActiveTab === 'about' && (
-          <div className="flex-1 overflow-y-auto p-8 max-w-2xl">
-            <h1 className="text-2xl font-bold mb-6">关于 AnyChat</h1>
-            <div className="space-y-4 text-sm text-muted-foreground">
-              <div className="p-6 rounded-lg border bg-card text-card-foreground">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="h-12 w-12 bg-primary/10 rounded-xl flex items-center justify-center">
-                    <Settings className="h-6 w-6 text-primary" />
+          <div className="flex-1 overflow-y-auto p-8 max-w-3xl">
+            <div className="space-y-6">
+              <motion.section
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-3xl border bg-card p-7 text-card-foreground"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+                    <Settings className="h-7 w-7 text-primary" />
                   </div>
                   <div>
-                    <h2 className="text-lg font-semibold">AnyChat</h2>
-                    <p className="text-xs">版本 0.1.0</p>
+                    <h1 className="text-2xl font-bold">关于 AnyChat</h1>
+                    <p className="mt-1 text-sm text-muted-foreground">版本 0.1.0</p>
                   </div>
                 </div>
-                <p className="leading-relaxed">
-                  基于 Tauri 2.0 的多 AI Chat 聚合桌面客户端，聚焦"统一入口 +
-                  本地可控的聊天数据沉淀"。
+
+                <p className="mt-5 max-w-2xl text-sm leading-7 text-muted-foreground">
+                  AnyChat 现在专注于多 AI 服务聚合体验本身，提供统一入口、轻量切换和低占用的 Tauri
+                  桌面端使用方式。
                 </p>
-              </div>
+                <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
+                  聊天数据采集、本地存储等能力已经迁移到 AmberKeeper。AnyChat
+                  只保留网页聚合与服务管理主线，后续也将围绕多 Web 体验继续迭代。
+                </p>
+              </motion.section>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <div className="p-4 rounded-lg border bg-muted/20">
-                  <h3 className="font-medium text-foreground mb-2">隐私优先</h3>
-                  <p className="text-xs">
-                    您的聊天数据存储在本地设备上。我们不会收集或上传您的对话记录。
-                  </p>
-                </div>
-                <div className="p-4 rounded-lg border bg-muted/20">
-                  <h3 className="font-medium text-foreground mb-2">开源</h3>
-                  <p className="text-xs">本项目开源。您可以在我们的代码库中贡献代码或审计安全。</p>
-                </div>
+                <AboutCard
+                  title="AnyChat 开源项目"
+                  description="查看当前 Tauri 主线源码、提交历史和后续迭代。"
+                  buttonLabel="访问 AnyChat 项目"
+                  href={ANYCHAT_REPO_URL}
+                />
+                <AboutCard
+                  title="AmberKeeper"
+                  description="聊天数据采集、本地存储与后续沉淀能力，统一转由 AmberKeeper 承接。"
+                  buttonLabel="查看 AmberKeeper"
+                  href={AMBERKEEPER_REPO_URL}
+                />
               </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Add Service Dialog */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>添加自定义服务</DialogTitle>
           </DialogHeader>
+
           <div className="space-y-4 py-4">
-            {/* Service Name */}
             <div className="space-y-2">
               <label className="text-sm font-medium">服务名称</label>
               <Input
                 placeholder="例如：My AI Chat"
                 value={newServiceName}
-                onChange={(e) => setNewServiceName(e.target.value)}
+                onChange={(event) => setNewServiceName(event.target.value)}
                 autoFocus
               />
             </div>
 
-            {/* Service URL */}
             <div className="space-y-2">
               <label className="text-sm font-medium">服务地址</label>
               <Input
                 placeholder="例如：https://chat.example.com"
                 value={newServiceUrl}
-                onChange={(e) => setNewServiceUrl(e.target.value)}
+                onChange={(event) => setNewServiceUrl(event.target.value)}
               />
             </div>
 
-            {/* Logo Preview */}
             <div className="space-y-2">
               <label className="text-sm font-medium">图标预览</label>
               <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-lg border bg-muted flex items-center justify-center overflow-hidden">
+                <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border bg-muted">
                   {logoLoading ? (
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   ) : fetchedLogoUrl ? (
                     <img src={fetchedLogoUrl} alt="Logo" className="h-8 w-8 object-contain" />
                   ) : selectedPresetIcon ? (
                     (() => {
-                      const preset = PRESET_ICONS.find((p) => p.id === selectedPresetIcon);
-                      if (preset) {
-                        const IconComp = preset.Icon;
-                        return <IconComp className="h-6 w-6 text-primary" />;
+                      const preset = PRESET_ICONS.find((item) => item.id === selectedPresetIcon);
+                      if (!preset) {
+                        return <Globe className="h-6 w-6 text-muted-foreground" />;
                       }
-                      return <Globe className="h-6 w-6 text-muted-foreground" />;
+
+                      const IconComponent = preset.Icon;
+                      return <IconComponent className="h-6 w-6 text-primary" />;
                     })()
                   ) : (
                     <Globe className="h-6 w-6 text-muted-foreground" />
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground flex-1">
+
+                <p className="flex-1 text-xs text-muted-foreground">
                   {logoLoading
                     ? '正在获取图标...'
                     : fetchedLogoUrl
@@ -774,18 +429,17 @@ export function SettingsPage() {
               </div>
             </div>
 
-            {/* Preset Icons */}
             <div className="space-y-2">
               <label className="text-sm font-medium">预设图标</label>
               <div className="grid grid-cols-7 gap-2">
                 {PRESET_ICONS.map((preset) => {
-                  const IconComp = preset.Icon;
+                  const IconComponent = preset.Icon;
                   return (
                     <button
                       key={preset.id}
                       type="button"
                       className={cn(
-                        'h-10 w-10 rounded-lg border flex items-center justify-center transition-all hover:border-primary/50',
+                        'flex h-10 w-10 items-center justify-center rounded-lg border transition-all hover:border-primary/50',
                         selectedPresetIcon === preset.id
                           ? 'border-primary bg-primary/10'
                           : 'border-border bg-muted/30'
@@ -796,7 +450,7 @@ export function SettingsPage() {
                       }}
                       title={preset.label}
                     >
-                      <IconComp
+                      <IconComponent
                         className={cn(
                           'h-5 w-5',
                           selectedPresetIcon === preset.id
@@ -811,9 +465,8 @@ export function SettingsPage() {
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={resetAddForm}>
+            <Button variant="ghost" onClick={() => setShowAddDialog(false)}>
               取消
             </Button>
             <Button

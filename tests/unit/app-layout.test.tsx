@@ -2,35 +2,24 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import { AppLayout } from '@/components/AppLayout';
 
+const { mockInvoke } = vi.hoisted(() => ({
+  mockInvoke: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock('@/hooks/useKeyboardShortcuts', () => ({
   useKeyboardShortcuts: () => undefined,
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn(() => Promise.resolve(() => undefined)),
-}));
-
-vi.mock('@/services/backup', () => ({
-  startAutoBackup: vi.fn(),
-  stopAutoBackup: vi.fn(),
-}));
-
-vi.mock('@/services/database', () => ({
-  initDatabase: vi.fn(() => Promise.reject(new Error('db init failed'))),
-  createSession: vi.fn(),
-  createMessage: vi.fn(),
+  invoke: mockInvoke,
 }));
 
 type StoreState = {
   activeServiceId: string | null;
   settingsPageOpen: boolean;
-  settingsActiveTab: 'services' | 'data' | 'about';
+  settingsActiveTab: 'services' | 'about';
   addServiceDialogOpen: boolean;
-  services: unknown[];
+  services: Array<{ id: string; url: string }>;
 };
 
 let storeState: StoreState = {
@@ -61,18 +50,9 @@ vi.mock('@/components/SettingsPage', () => ({
   SettingsPage: () => <div data-testid="settings" />,
 }));
 
-// no-op localStorage for zustand persist in other imports
-Object.defineProperty(window, 'localStorage', {
-  value: {
-    getItem: vi.fn(),
-    setItem: vi.fn(),
-    removeItem: vi.fn(),
-  },
-  writable: true,
-});
-
 describe('AppLayout', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     storeState = {
       activeServiceId: null,
       settingsPageOpen: false,
@@ -82,50 +62,55 @@ describe('AppLayout', () => {
     };
   });
 
-  it('shows database init error when initialization fails', async () => {
-    storeState = {
-      activeServiceId: null,
-      settingsPageOpen: true,
-      settingsActiveTab: 'data',
-      addServiceDialogOpen: false,
-      services: [],
-    };
+  it('renders webview content when settings page is closed', () => {
     render(<AppLayout />);
 
-    await waitFor(() => {
-      expect(screen.getByText('数据库初始化失败')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('db init failed')).toBeInTheDocument();
+    expect(screen.getByTestId('webview')).toBeInTheDocument();
+    expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
   });
 
-  it('does not show db overlay when settings page is closed', async () => {
+  it('renders settings page when settings page is open', () => {
     storeState = {
-      activeServiceId: null,
-      settingsPageOpen: false,
-      settingsActiveTab: 'data',
-      addServiceDialogOpen: false,
-      services: [],
+      ...storeState,
+      settingsPageOpen: true,
+      settingsActiveTab: 'about',
     };
+
+    render(<AppLayout />);
+
+    expect(screen.getByTestId('settings')).toBeInTheDocument();
+    expect(screen.queryByTestId('webview')).not.toBeInTheDocument();
+  });
+
+  it('switches to the active service when no dialog is open', async () => {
+    storeState = {
+      ...storeState,
+      activeServiceId: 'chatgpt',
+      services: [{ id: 'chatgpt', url: 'https://chatgpt.com' }],
+    };
+
     render(<AppLayout />);
 
     await waitFor(() => {
-      expect(screen.queryByText('Initializing...')).not.toBeInTheDocument();
+      expect(mockInvoke).toHaveBeenCalledWith('switch_webview', {
+        label: 'chatgpt',
+        url: 'https://chatgpt.com',
+      });
     });
   });
 
-  it('shows db overlay only on data tab', async () => {
+  it('hides all webviews while dialogs are open', async () => {
     storeState = {
-      activeServiceId: null,
+      ...storeState,
       settingsPageOpen: true,
-      settingsActiveTab: 'data',
-      addServiceDialogOpen: false,
-      services: [],
+      activeServiceId: 'chatgpt',
+      services: [{ id: 'chatgpt', url: 'https://chatgpt.com' }],
     };
+
     render(<AppLayout />);
 
     await waitFor(() => {
-      expect(screen.getByText('数据库初始化失败')).toBeInTheDocument();
+      expect(mockInvoke).toHaveBeenCalledWith('hide_all_webviews');
     });
   });
 });

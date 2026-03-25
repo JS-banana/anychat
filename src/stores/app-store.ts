@@ -6,7 +6,7 @@ interface AppState {
   services: ChatService[];
   activeServiceId: string | null;
   settingsPageOpen: boolean;
-  settingsActiveTab: 'services' | 'data' | 'about';
+  settingsActiveTab: 'services' | 'about';
   addServiceDialogOpen: boolean;
 
   setActiveService: (id: string) => void;
@@ -16,7 +16,7 @@ interface AppState {
   toggleServiceEnabled: (id: string) => void;
   reorderServices: (startIndex: number, endIndex: number) => void;
   setSettingsPageOpen: (open: boolean) => void;
-  setSettingsActiveTab: (tab: 'services' | 'data' | 'about') => void;
+  setSettingsActiveTab: (tab: 'services' | 'about') => void;
   setAddServiceDialogOpen: (open: boolean) => void;
 }
 
@@ -108,6 +108,7 @@ export const useAppStore = create<AppState>()(
           if (saved) {
             return {
               ...defaultService,
+              iconUrl: saved.iconUrl ?? defaultService.iconUrl,
               enabled: saved.enabled,
               order: saved.order,
             };

@@ -80,7 +80,6 @@ export function Sidebar() {
                       iconUrl={service.iconUrl}
                       serviceName={service.name}
                       onResolvedIcon={(resolvedIconUrl) => {
-                        if (!service.id.startsWith('custom-')) return;
                         if (resolvedIconUrl === service.iconUrl) return;
                         updateService(service.id, { iconUrl: resolvedIconUrl });
                       }}
