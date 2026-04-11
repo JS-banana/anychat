@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
@@ -111,9 +111,38 @@ const WEBVIEW_COMPAT_SCRIPT: &str = r#"
 })();
 "#;
 
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ServiceHostPayload {
+    id: String,
+    name: String,
+    url: String,
+    enabled: bool,
+}
+
+#[derive(Debug, Clone)]
+struct WindowsServiceHost {
+    service_id: String,
+    window_label: String,
+    name: String,
+    url: String,
+}
+
+impl WindowsServiceHost {
+    fn from_service(service: &ServiceHostPayload) -> Self {
+        Self {
+            service_id: service.id.clone(),
+            window_label: service_window_label(&service.id),
+            name: service.name.clone(),
+            url: service.url.clone(),
+        }
+    }
+}
+
 struct AppState {
     created_webviews: Mutex<HashSet<String>>,
     setup_complete: Mutex<bool>,
+    windows_service_hosts: Mutex<HashMap<String, WindowsServiceHost>>,
+    active_windows_service_id: Mutex<Option<String>>,
 }
 
 #[cfg(debug_assertions)]
@@ -175,6 +204,351 @@ fn is_auth_url(url: &str) -> bool {
     false
 }
 
+fn service_window_label(service_id: &str) -> String {
+    format!("svc_{}", service_id)
+}
+
+fn compute_docked_window_bounds_from_metrics(
+    inner_pos: PhysicalPosition<i32>,
+    inner_size: PhysicalSize<u32>,
+    scale: f64,
+) -> (PhysicalPosition<i32>, PhysicalSize<u32>) {
+    let sidebar_width_physical = (SIDEBAR_WIDTH * scale).round().max(0.0) as u32;
+    let x = inner_pos.x + sidebar_width_physical.min(inner_size.width) as i32;
+    let width = inner_size.width.saturating_sub(sidebar_width_physical);
+
+    (
+        PhysicalPosition::new(x, inner_pos.y),
+        PhysicalSize::new(width, inner_size.height),
+    )
+}
+
+fn compute_docked_window_bounds(
+    window: &tauri::WebviewWindow,
+) -> Result<(PhysicalPosition<i32>, PhysicalSize<u32>), String> {
+    let inner_pos = window.inner_position().map_err(|e| e.to_string())?;
+    let inner_size = window.inner_size().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+
+    Ok(compute_docked_window_bounds_from_metrics(
+        inner_pos, inner_size, scale,
+    ))
+}
+
+fn should_show_windows_service_hosts(is_visible: bool, is_minimized: bool) -> bool {
+    is_visible && !is_minimized
+}
+
+fn should_navigate_existing_windows_service_host(
+    tracked_host: Option<&WindowsServiceHost>,
+    service: &ServiceHostPayload,
+) -> bool {
+    tracked_host
+        .map(|host| host.url != service.url)
+        .unwrap_or(false)
+}
+
+fn stale_windows_service_ids(
+    tracked_hosts: &HashMap<String, WindowsServiceHost>,
+    services: &[ServiceHostPayload],
+) -> Vec<String> {
+    let enabled_ids: HashSet<&str> = services
+        .iter()
+        .filter(|service| service.enabled)
+        .map(|service| service.id.as_str())
+        .collect();
+
+    let mut stale_ids = tracked_hosts
+        .keys()
+        .filter(|service_id| !enabled_ids.contains(service_id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    stale_ids.sort();
+    stale_ids
+}
+
+fn open_oauth_popup<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url: &tauri::Url) {
+    let popup_label = format!(
+        "oauth-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+
+    let _ = WebviewWindowBuilder::new(app, &popup_label, WebviewUrl::External(url.clone()))
+        .title("Sign In")
+        .inner_size(500.0, 700.0)
+        .center()
+        .user_agent(USER_AGENT)
+        .initialization_script(WEBVIEW_COMPAT_SCRIPT)
+        .build();
+}
+
+fn sync_windows_service_host_record(
+    state: &AppState,
+    service: &ServiceHostPayload,
+) -> WindowsServiceHost {
+    let host = WindowsServiceHost::from_service(service);
+    let mut tracked_hosts = state.windows_service_hosts.lock().unwrap();
+    tracked_hosts.insert(service.id.clone(), host.clone());
+    host
+}
+
+fn tracked_windows_service_hosts(state: &AppState) -> Vec<WindowsServiceHost> {
+    state
+        .windows_service_hosts
+        .lock()
+        .unwrap()
+        .values()
+        .cloned()
+        .collect()
+}
+
+#[allow(dead_code)]
+fn resolve_windows_refresh_url(
+    current_url: Option<String>,
+    service: &ServiceHostPayload,
+) -> String {
+    current_url.unwrap_or_else(|| service.url.clone())
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn tracked_services_or_current(
+    services: Option<Vec<ServiceHostPayload>>,
+    service: &ServiceHostPayload,
+) -> Vec<ServiceHostPayload> {
+    services.unwrap_or_else(|| vec![service.clone()])
+}
+
+fn set_active_windows_service_id(state: &AppState, service_id: Option<String>) {
+    let mut active_service_id = state.active_windows_service_id.lock().unwrap();
+    *active_service_id = service_id;
+}
+
+fn hide_windows_service_hosts(app: &tauri::AppHandle, state: &AppState) {
+    for host in tracked_windows_service_hosts(state) {
+        if let Some(window) = app.get_webview_window(&host.window_label) {
+            let _ = window.hide();
+        }
+    }
+}
+
+fn sync_windows_service_host_layout_with_main(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    main_window: &tauri::WebviewWindow,
+) -> Result<(), String> {
+    let (pos, size) = compute_docked_window_bounds(main_window)?;
+
+    for host in tracked_windows_service_hosts(state) {
+        if let Some(window) = app.get_webview_window(&host.window_label) {
+            let _ = window.set_position(pos);
+            let _ = window.set_size(size);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn sync_windows_service_host_layout(
+    app: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<(), String> {
+    let Some(main_window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+
+    sync_windows_service_host_layout_with_main(app, state, &main_window)
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn sync_windows_service_host_state(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    services: &[ServiceHostPayload],
+    active_service_id: Option<String>,
+) -> Result<(), String> {
+    prune_disabled_windows_service_hosts(app, state, services);
+    set_active_windows_service_id(state, active_service_id);
+
+    if state
+        .active_windows_service_id
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_none()
+    {
+        hide_windows_service_hosts(app, state);
+        return Ok(());
+    }
+
+    show_active_windows_service_host(app, state)
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn prune_disabled_windows_service_hosts(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    services: &[ServiceHostPayload],
+) {
+    let stale_hosts = {
+        let tracked_hosts = state.windows_service_hosts.lock().unwrap();
+        stale_windows_service_ids(&tracked_hosts, services)
+            .into_iter()
+            .filter_map(|service_id| {
+                tracked_hosts
+                    .get(&service_id)
+                    .cloned()
+                    .map(|host| (service_id, host.window_label))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    for (_, window_label) in &stale_hosts {
+        if let Some(window) = app.get_webview_window(window_label) {
+            let _ = window.close();
+        }
+    }
+
+    if stale_hosts.is_empty() {
+        return;
+    }
+
+    let stale_ids = stale_hosts
+        .iter()
+        .map(|(service_id, _)| service_id.clone())
+        .collect::<HashSet<_>>();
+
+    {
+        let mut tracked_hosts = state.windows_service_hosts.lock().unwrap();
+        for service_id in &stale_ids {
+            tracked_hosts.remove(service_id);
+        }
+    }
+
+    let active_service_id = state.active_windows_service_id.lock().unwrap().clone();
+    if active_service_id
+        .as_ref()
+        .is_some_and(|service_id| stale_ids.contains(service_id))
+    {
+        set_active_windows_service_id(state, None);
+    }
+}
+
+fn ensure_windows_service_host(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    main_window: &tauri::WebviewWindow,
+    service: &ServiceHostPayload,
+) -> Result<WindowsServiceHost, String> {
+    let tracked_host = state
+        .windows_service_hosts
+        .lock()
+        .unwrap()
+        .get(&service.id)
+        .cloned();
+    let host = sync_windows_service_host_record(state, service);
+    let parsed_url: tauri::Url = service.url.parse().map_err(|e| format!("{}", e))?;
+
+    if let Some(window) = app.get_webview_window(&host.window_label) {
+        let _ = window.set_title(&service.name);
+        if should_navigate_existing_windows_service_host(tracked_host.as_ref(), service) {
+            let _ = window.navigate(parsed_url.clone());
+        }
+        sync_windows_service_host_layout_with_main(app, state, main_window)?;
+        return Ok(host);
+    }
+
+    let app_handle_clone = app.clone();
+    let builder =
+        WebviewWindowBuilder::new(app, &host.window_label, WebviewUrl::External(parsed_url))
+            .title(&service.name)
+            .inner_size(900.0, 700.0)
+            .visible(false)
+            .resizable(false)
+            .decorations(false)
+            .skip_taskbar(true)
+            .user_agent(USER_AGENT)
+            .initialization_script(WEBVIEW_COMPAT_SCRIPT)
+            .on_navigation(|url| {
+                let url_str = url.as_str();
+                if is_auth_url(url_str) {
+                    #[cfg(debug_assertions)]
+                    println!("[AnyChat] Allowing OAuth navigation to: {}", url_str);
+                }
+                true
+            })
+            .on_new_window(move |url, _features| {
+                #[cfg(debug_assertions)]
+                println!("[AnyChat] New window requested: {}", url);
+
+                if is_auth_url(url.as_str()) {
+                    open_oauth_popup(&app_handle_clone, &url);
+                }
+
+                handle_external_new_window(&app_handle_clone, &url)
+            })
+            .parent(main_window)
+            .map_err(|e| e.to_string())?;
+
+    let window = builder.build().map_err(|e| e.to_string())?;
+    sync_windows_service_host_layout_with_main(app, state, main_window)?;
+    let _ = window.hide();
+
+    Ok(host)
+}
+
+fn show_active_windows_service_host(
+    app: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<(), String> {
+    let Some(main_window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+
+    let is_visible = main_window.is_visible().map_err(|e| e.to_string())?;
+    let is_minimized = main_window.is_minimized().map_err(|e| e.to_string())?;
+
+    if !should_show_windows_service_hosts(is_visible, is_minimized) {
+        hide_windows_service_hosts(app, state);
+        return Ok(());
+    }
+
+    let Some(active_host) = ({
+        let active_service_id = state.active_windows_service_id.lock().unwrap().clone();
+        let tracked_hosts = state.windows_service_hosts.lock().unwrap();
+        active_service_id.and_then(|service_id| tracked_hosts.get(&service_id).cloned())
+    }) else {
+        hide_windows_service_hosts(app, state);
+        return Ok(());
+    };
+
+    let restore_service = ServiceHostPayload {
+        id: active_host.service_id.clone(),
+        name: active_host.name.clone(),
+        url: active_host.url.clone(),
+        enabled: true,
+    };
+
+    let _ = ensure_windows_service_host(app, state, &main_window, &restore_service)?;
+    sync_windows_service_host_layout_with_main(app, state, &main_window)?;
+
+    for host in tracked_windows_service_hosts(state) {
+        if let Some(window) = app.get_webview_window(&host.window_label) {
+            if host.service_id == active_host.service_id {
+                let _ = window.show();
+                let _ = window.set_focus();
+            } else {
+                let _ = window.hide();
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn handle_external_new_window<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     url: &tauri::Url,
@@ -204,7 +578,13 @@ fn decide_show_action(is_visible: bool, is_minimized: bool) -> ShowAction {
 
 #[cfg(test)]
 mod tests {
-    use super::{decide_show_action, ShowAction};
+    use super::{
+        compute_docked_window_bounds_from_metrics, decide_show_action, resolve_windows_refresh_url,
+        should_navigate_existing_windows_service_host, should_show_windows_service_hosts,
+        stale_windows_service_ids, ServiceHostPayload, ShowAction, WindowsServiceHost,
+    };
+    use std::collections::HashMap;
+    use tauri::{PhysicalPosition, PhysicalSize};
 
     #[test]
     fn show_action_focus_only_when_visible_and_not_minimized() {
@@ -224,6 +604,129 @@ mod tests {
         assert_eq!(
             decide_show_action(true, true),
             ShowAction::ShowAndUnminimize
+        );
+    }
+
+    #[test]
+    fn docked_window_bounds_respect_sidebar_width_and_window_origin() {
+        let (pos, size) = compute_docked_window_bounds_from_metrics(
+            PhysicalPosition::new(120, 40),
+            PhysicalSize::new(1000, 700),
+            1.5,
+        );
+
+        assert_eq!(pos, PhysicalPosition::new(216, 40));
+        assert_eq!(size, PhysicalSize::new(904, 700));
+    }
+
+    #[test]
+    fn windows_service_hosts_show_only_when_shell_is_visible_and_not_minimized() {
+        assert!(should_show_windows_service_hosts(true, false));
+        assert!(!should_show_windows_service_hosts(false, false));
+        assert!(!should_show_windows_service_hosts(true, true));
+    }
+
+    #[test]
+    fn stale_windows_service_ids_ignore_enabled_hosts_and_flag_disabled_or_removed_hosts() {
+        let mut tracked_hosts = HashMap::new();
+        tracked_hosts.insert(
+            "chatgpt".to_string(),
+            WindowsServiceHost {
+                service_id: "chatgpt".to_string(),
+                window_label: "svc_chatgpt".to_string(),
+                name: "ChatGPT".to_string(),
+                url: "https://chatgpt.com".to_string(),
+            },
+        );
+        tracked_hosts.insert(
+            "gemini".to_string(),
+            WindowsServiceHost {
+                service_id: "gemini".to_string(),
+                window_label: "svc_gemini".to_string(),
+                name: "Gemini".to_string(),
+                url: "https://gemini.google.com".to_string(),
+            },
+        );
+
+        let stale_ids = stale_windows_service_ids(
+            &tracked_hosts,
+            &[
+                ServiceHostPayload {
+                    id: "chatgpt".to_string(),
+                    name: "ChatGPT".to_string(),
+                    url: "https://chatgpt.com".to_string(),
+                    enabled: true,
+                },
+                ServiceHostPayload {
+                    id: "gemini".to_string(),
+                    name: "Gemini".to_string(),
+                    url: "https://gemini.google.com".to_string(),
+                    enabled: false,
+                },
+            ],
+        );
+
+        assert_eq!(stale_ids, vec!["gemini".to_string()]);
+    }
+
+    #[test]
+    fn existing_windows_host_preserves_current_page_when_service_definition_is_unchanged() {
+        let tracked_host = WindowsServiceHost {
+            service_id: "chatgpt".to_string(),
+            window_label: "svc_chatgpt".to_string(),
+            name: "ChatGPT".to_string(),
+            url: "https://chatgpt.com".to_string(),
+        };
+        let service = ServiceHostPayload {
+            id: "chatgpt".to_string(),
+            name: "ChatGPT".to_string(),
+            url: "https://chatgpt.com".to_string(),
+            enabled: true,
+        };
+
+        assert!(!should_navigate_existing_windows_service_host(
+            Some(&tracked_host),
+            &service
+        ));
+    }
+
+    #[test]
+    fn existing_windows_host_reloads_when_service_definition_changes() {
+        let tracked_host = WindowsServiceHost {
+            service_id: "chatgpt".to_string(),
+            window_label: "svc_chatgpt".to_string(),
+            name: "ChatGPT".to_string(),
+            url: "https://chatgpt.com".to_string(),
+        };
+        let service = ServiceHostPayload {
+            id: "chatgpt".to_string(),
+            name: "ChatGPT".to_string(),
+            url: "https://chatgpt.com/new".to_string(),
+            enabled: true,
+        };
+
+        assert!(should_navigate_existing_windows_service_host(
+            Some(&tracked_host),
+            &service
+        ));
+    }
+
+    #[test]
+    fn windows_refresh_prefers_current_page_url_over_service_home() {
+        let service = ServiceHostPayload {
+            id: "chatgpt".to_string(),
+            name: "ChatGPT".to_string(),
+            url: "https://chatgpt.com".to_string(),
+            enabled: true,
+        };
+
+        assert_eq!(
+            resolve_windows_refresh_url(Some("https://chatgpt.com/c/abc123".to_string()), &service,),
+            "https://chatgpt.com/c/abc123".to_string()
+        );
+        assert_eq!(
+            resolve_windows_refresh_url(None, &service),
+            "https://chatgpt.com".to_string()
         );
     }
 }
@@ -426,26 +929,7 @@ fn create_webview_for_service(
             if is_auth_url(url.as_str()) {
                 #[cfg(debug_assertions)]
                 println!("[AnyChat] Creating OAuth popup window");
-
-                let popup_label = format!(
-                    "oauth-{}",
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis()
-                );
-
-                let _ = WebviewWindowBuilder::new(
-                    &app_handle_clone,
-                    &popup_label,
-                    WebviewUrl::External(url.clone()),
-                )
-                .title("Sign In")
-                .inner_size(500.0, 700.0)
-                .center()
-                .user_agent(USER_AGENT)
-                .initialization_script(WEBVIEW_COMPAT_SCRIPT)
-                .build();
+                open_oauth_popup(&app_handle_clone, &url);
             }
 
             handle_external_new_window(&app_handle_clone, &url)
@@ -478,16 +962,15 @@ fn create_webview_for_service(
     Ok(())
 }
 
-#[tauri::command]
-fn switch_webview(
+fn activate_child_webview_content(
     // Use Window instead of WebviewWindow to avoid IPC failure in multi-webview windows.
-    parent: tauri::Window,
-    app: tauri::AppHandle,
-    label: String,
-    url: String,
+    parent: &tauri::Window,
+    app: &tauri::AppHandle,
+    label: &str,
+    url: &str,
 ) -> Result<(), String> {
     println!(
-        "[AnyChat] switch_webview called: label={}, url={}, parent={}",
+        "[AnyChat] activate_child_webview_content called: label={}, url={}, parent={}",
         label,
         url,
         parent.label()
@@ -498,23 +981,14 @@ fn switch_webview(
     {
         let setup_complete = state.setup_complete.lock().unwrap();
         if !*setup_complete {
-            println!("[AnyChat] Setup not complete yet, skipping switch_webview");
+            println!("[AnyChat] Setup not complete yet, skipping activate_child_webview_content");
             return Ok(());
         }
     }
 
-    {
-        let created = state.created_webviews.lock().unwrap();
-        for existing_label in created.iter() {
-            if let Some(webview) = app.get_webview(existing_label) {
-                let _ = webview.hide();
-            }
-        }
-    }
-
-    if app.get_webview(&label).is_none() {
+    if app.get_webview(label).is_none() {
         println!("[AnyChat] Webview {} not found, creating...", label);
-        match create_webview_for_service(&app, &label, &url, &state, &parent) {
+        match create_webview_for_service(app, label, url, &state, parent) {
             Ok(_) => println!("[AnyChat] Successfully created webview: {}", label),
             Err(e) => {
                 println!("[AnyChat] ERROR creating webview {}: {}", label, e);
@@ -525,17 +999,33 @@ fn switch_webview(
         println!("[AnyChat] Webview {} already exists", label);
     }
 
-    if let Some(webview) = app.get_webview(&label) {
+    if let Some(webview) = app.get_webview(label) {
+        {
+            let created = state.created_webviews.lock().unwrap();
+            for existing_label in created.iter() {
+                if existing_label == label {
+                    continue;
+                }
+
+                if let Some(existing_webview) = app.get_webview(existing_label) {
+                    let _ = existing_webview.hide();
+                }
+            }
+        }
+
         if let Ok((pos, size)) = compute_webview_bounds(&parent) {
             let _ = webview.set_position(pos);
             let _ = webview.set_size(size);
         }
         let _ = webview.show();
         let _ = webview.set_focus();
-        println!("[AnyChat] Showing webview: {}", label);
+        println!(
+            "[AnyChat] activate_child_webview_content: showing webview {}",
+            label
+        );
     } else {
         println!(
-            "[AnyChat] ERROR: Failed to get webview after creation: {}",
+            "[AnyChat] activate_child_webview_content: failed to get webview after creation: {}",
             label
         );
     }
@@ -544,26 +1034,137 @@ fn switch_webview(
 }
 
 #[tauri::command]
-fn refresh_webview(app: tauri::AppHandle, label: String) -> Result<(), String> {
-    if let Some(webview) = app.get_webview(&label) {
-        if let Ok(url) = webview.url() {
-            let _ = webview.navigate(url);
+async fn activate_service_content(
+    parent: tauri::Window,
+    app: tauri::AppHandle,
+    service: ServiceHostPayload,
+    _services: Option<Vec<ServiceHostPayload>>,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let state = app.state::<AppState>();
+        let tracked_services = tracked_services_or_current(_services, &service);
+        let main_window = app
+            .get_webview_window(parent.label())
+            .ok_or_else(|| format!("Main window {} not found", parent.label()))?;
+
+        {
+            let setup_complete = state.setup_complete.lock().unwrap();
+            if !*setup_complete {
+                println!("[AnyChat] Setup not complete yet, skipping activate_service_content");
+                return Ok(());
+            }
         }
+
+        prune_disabled_windows_service_hosts(&app, &state, &tracked_services);
+        set_active_windows_service_id(&state, Some(service.id.clone()));
+        let _ = ensure_windows_service_host(&app, &state, &main_window, &service)?;
+        return show_active_windows_service_host(&app, &state);
     }
-    Ok(())
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        activate_child_webview_content(&parent, &app, &service.id, &service.url)
+    }
 }
 
 #[tauri::command]
-fn hide_all_webviews(app: tauri::AppHandle) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    let created = state.created_webviews.lock().unwrap();
+fn refresh_service_content(
+    app: tauri::AppHandle,
+    service: ServiceHostPayload,
+    _services: Option<Vec<ServiceHostPayload>>,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let state = app.state::<AppState>();
+        let tracked_services = tracked_services_or_current(_services, &service);
 
-    for label in created.iter() {
-        if let Some(webview) = app.get_webview(label) {
-            let _ = webview.hide();
-        }
+        prune_disabled_windows_service_hosts(&app, &state, &tracked_services);
+        set_active_windows_service_id(&state, Some(service.id.clone()));
+
+        let main_window = app
+            .get_webview_window("main")
+            .ok_or_else(|| "Main window not found".to_string())?;
+        let host = ensure_windows_service_host(&app, &state, &main_window, &service)?;
+        let window = app
+            .get_webview_window(&host.window_label)
+            .ok_or_else(|| format!("Service window {} not found", host.window_label))?;
+        let refresh_url = resolve_windows_refresh_url(
+            window.url().ok().map(|current_url| current_url.to_string()),
+            &service,
+        );
+        let url: tauri::Url = refresh_url.parse().map_err(|e| format!("{}", e))?;
+        window.navigate(url).map_err(|e| e.to_string())?;
+        return show_active_windows_service_host(&app, &state);
     }
-    Ok(())
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Some(webview) = app.get_webview(&service.id) {
+            if let Ok(url) = webview.url() {
+                let _ = webview.navigate(url);
+            }
+        }
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn hide_all_service_content(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let state = app.state::<AppState>();
+        hide_windows_service_hosts(&app, &state);
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let state = app.state::<AppState>();
+        let created = state.created_webviews.lock().unwrap();
+
+        for label in created.iter() {
+            if let Some(webview) = app.get_webview(label) {
+                let _ = webview.hide();
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn sync_service_host_state(
+    app: tauri::AppHandle,
+    services: Vec<ServiceHostPayload>,
+    active_service_id: Option<String>,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let state = app.state::<AppState>();
+        return sync_windows_service_host_state(&app, &state, &services, active_service_id);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, services, active_service_id);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn sync_docked_content_layout(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let state = app.state::<AppState>();
+        return sync_windows_service_host_layout(&app, &state);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -628,6 +1229,25 @@ fn extract_site_icon_url(base_url: &reqwest::Url, html: &str) -> Option<String> 
 
     None
 }
+
+#[tauri::command]
+fn host_platform() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "windows"
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        "macos"
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        "linux"
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -635,146 +1255,130 @@ pub fn run() {
         .manage(AppState {
             created_webviews: Mutex::new(HashSet::new()),
             setup_complete: Mutex::new(false),
+            windows_service_hosts: Mutex::new(HashMap::new()),
+            active_windows_service_id: Mutex::new(None),
         })
         .setup(|app| {
             println!("[AnyChat] Setup starting...");
 
-            let main_webview_window = match WebviewWindowBuilder::new(
-                app,
-                "main",
-                WebviewUrl::App("index.html".into()),
-            )
-            .title("")
-            .inner_size(1200.0, 800.0)
-            .min_inner_size(800.0, 600.0)
-            .build() {
-                Ok(w) => {
-                    println!("[AnyChat] Main window created successfully");
-                    w
-                }
-                Err(e) => {
-                    println!("[AnyChat] ERROR: Failed to create main window: {}", e);
-                    return Err(e.into());
-                }
-            };
+            let main_webview_window =
+                match WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .title("")
+                    .inner_size(1200.0, 800.0)
+                    .min_inner_size(800.0, 600.0)
+                    .build()
+                {
+                    Ok(w) => {
+                        println!("[AnyChat] Main window created successfully");
+                        w
+                    }
+                    Err(e) => {
+                        println!("[AnyChat] ERROR: Failed to create main window: {}", e);
+                        return Err(e.into());
+                    }
+                };
 
             let window = main_webview_window.as_ref().window();
 
             let state = app.state::<AppState>();
-            let (pos, size) = compute_webview_bounds(&window)?;
-
             #[cfg(debug_assertions)]
             if should_open_devtools() {
                 let _ = main_webview_window.open_devtools();
                 println!("[AnyChat] DevTools opened for main webview window");
             }
 
-            let default_services = [
-                ("chatgpt", "https://chatgpt.com"),
-                ("gemini", "https://gemini.google.com"),
-            ];
+            #[cfg(not(target_os = "windows"))]
+            {
+                let (pos, size) = compute_webview_bounds(&window)?;
 
-            for (index, (label, url)) in default_services.iter().enumerate() {
-                let app_handle_clone = app.handle().clone();
+                let default_services = [
+                    ("chatgpt", "https://chatgpt.com"),
+                    ("gemini", "https://gemini.google.com"),
+                ];
 
-                let webview_builder = WebviewBuilder::new(
-                    *label,
-                    WebviewUrl::External(url.parse().unwrap()),
-                )
-                .user_agent(USER_AGENT)
-                .initialization_script(WEBVIEW_COMPAT_SCRIPT)
-                .on_navigation(|url| {
-                    let url_str = url.as_str();
-                    if is_auth_url(url_str) {
-                        #[cfg(debug_assertions)]
-                        println!("[AnyChat] Allowing OAuth navigation to: {}", url_str);
+                for (index, (label, url)) in default_services.iter().enumerate() {
+                    let app_handle_clone = app.handle().clone();
+
+                    let webview_builder =
+                        WebviewBuilder::new(*label, WebviewUrl::External(url.parse().unwrap()))
+                            .user_agent(USER_AGENT)
+                            .initialization_script(WEBVIEW_COMPAT_SCRIPT)
+                            .on_navigation(|url| {
+                                let url_str = url.as_str();
+                                if is_auth_url(url_str) {
+                                    #[cfg(debug_assertions)]
+                                    println!("[AnyChat] Allowing OAuth navigation to: {}", url_str);
+                                }
+                                true
+                            })
+                            .on_new_window(move |url, _features| {
+                                #[cfg(debug_assertions)]
+                                println!("[AnyChat] New window requested: {}", url);
+
+                                if is_auth_url(url.as_str()) {
+                                    open_oauth_popup(&app_handle_clone, &url);
+                                }
+
+                                handle_external_new_window(&app_handle_clone, &url)
+                            });
+
+                    let webview = window
+                        .add_child(webview_builder, pos, size)
+                        .map_err(|e| e.to_string())?;
+
+                    // Some platforms/versions may not apply the initial bounds reliably. Enforce once right away.
+                    let _ = webview.set_position(pos);
+                    let _ = webview.set_size(size);
+
+                    {
+                        let mut created = state.created_webviews.lock().unwrap();
+                        created.insert(label.to_string());
                     }
-                    true
-                })
-                .on_new_window(move |url, _features| {
+
                     #[cfg(debug_assertions)]
-                    println!("[AnyChat] New window requested: {}", url);
-
-                    if is_auth_url(url.as_str()) {
-                        let popup_label = format!(
-                            "oauth-{}",
-                            std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
-                                .as_millis()
-                        );
-
-                        let _ = WebviewWindowBuilder::new(
-                            &app_handle_clone,
-                            &popup_label,
-                            WebviewUrl::External(url.clone()),
-                        )
-                        .title("Sign In")
-                        .inner_size(500.0, 700.0)
-                        .center()
-                        .user_agent(USER_AGENT)
-                        .initialization_script(WEBVIEW_COMPAT_SCRIPT)
-                        .build();
+                    if index == 0 && should_open_devtools() {
+                        let _ = webview.open_devtools();
+                        println!("[AnyChat] DevTools opened for initial webview: {}", label);
                     }
 
-                    handle_external_new_window(&app_handle_clone, &url)
-                })
-                ;
-
-                let webview = window
-                    .add_child(
-                        webview_builder,
-                        pos,
-                        size,
-                    )
-                    .map_err(|e| e.to_string())?;
-
-                // Some platforms/versions may not apply the initial bounds reliably. Enforce once right away.
-                let _ = webview.set_position(pos);
-                let _ = webview.set_size(size);
-
-                {
-                    let mut created = state.created_webviews.lock().unwrap();
-                    created.insert(label.to_string());
-                }
-
-                #[cfg(debug_assertions)]
-                if index == 0 && should_open_devtools() {
-                    let _ = webview.open_devtools();
-                    println!("[AnyChat] DevTools opened for initial webview: {}", label);
-                }
-
-                if index != 0 {
-                    let _ = webview.hide();
+                    if index != 0 {
+                        let _ = webview.hide();
+                    }
                 }
             }
 
-            let app_handle = app.handle().clone();
-            window.on_window_event(move |event| {
-                if let WindowEvent::Resized(size) = event {
-                    if let Some(webview_window) = app_handle.get_webview_window("main") {
-                        let _ = size; // keep pattern explicit: we recompute bounds from window state
+            #[cfg(not(target_os = "windows"))]
+            {
+                let app_handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let WindowEvent::Resized(size) = event {
+                        if let Some(webview_window) = app_handle.get_webview_window("main") {
+                            let _ = size; // keep pattern explicit: we recompute bounds from window state
 
-                        let window = webview_window.as_ref().window();
-                        let (pos, size) = match compute_webview_bounds(&window) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                println!("[AnyChat] Failed to compute webview bounds on resize: {}", e);
-                                return;
-                            }
-                        };
+                            let window = webview_window.as_ref().window();
+                            let (pos, size) = match compute_webview_bounds(&window) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    println!(
+                                        "[AnyChat] Failed to compute webview bounds on resize: {}",
+                                        e
+                                    );
+                                    return;
+                                }
+                            };
 
-                        let state = app_handle.state::<AppState>();
-                        let created = state.created_webviews.lock().unwrap();
-                        for label in created.iter() {
-                            if let Some(webview) = app_handle.get_webview(label) {
-                                let _ = webview.set_position(pos);
-                                let _ = webview.set_size(size);
+                            let state = app_handle.state::<AppState>();
+                            let created = state.created_webviews.lock().unwrap();
+                            for label in created.iter() {
+                                if let Some(webview) = app_handle.get_webview(label) {
+                                    let _ = webview.set_position(pos);
+                                    let _ = webview.set_size(size);
+                                }
                             }
                         }
                     }
-                }
-            });
+                });
+            }
 
             {
                 let mut setup_complete = state.setup_complete.lock().unwrap();
@@ -796,12 +1400,16 @@ pub fn run() {
                     "show" => {
                         println!("[AnyChat] Tray menu: show");
                         show_main_window(app_handle);
+                        let state = app_handle.state::<AppState>();
+                        let _ = show_active_windows_service_host(app_handle, &state);
                     }
                     "hide" => {
                         println!("[AnyChat] Tray menu: hide");
                         if let Some(w) = app_handle.get_webview_window("main") {
                             let _ = w.hide();
                         }
+                        let state = app_handle.state::<AppState>();
+                        hide_windows_service_hosts(app_handle, &state);
                     }
                     "quit" => {
                         println!("[AnyChat] Tray menu: quit");
@@ -817,18 +1425,37 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+            if window.label() != "main" {
+                return;
+            }
+
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    let app_handle = window.app_handle();
+                    let state = app_handle.state::<AppState>();
+                    hide_windows_service_hosts(&app_handle, &state);
                     let _ = window.hide();
                     api.prevent_close();
                 }
+                #[cfg(target_os = "windows")]
+                WindowEvent::Moved(_)
+                | WindowEvent::Resized(_)
+                | WindowEvent::ScaleFactorChanged { .. } => {
+                    let app_handle = window.app_handle();
+                    let state = app_handle.state::<AppState>();
+                    let _ = show_active_windows_service_host(&app_handle, &state);
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
             discover_site_icon,
-            switch_webview,
-            refresh_webview,
-            hide_all_webviews
+            host_platform,
+            activate_service_content,
+            refresh_service_content,
+            hide_all_service_content,
+            sync_service_host_state,
+            sync_docked_content_layout
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -837,6 +1464,8 @@ pub fn run() {
             if let tauri::RunEvent::Reopen { .. } = event {
                 println!("[AnyChat] RunEvent::Reopen");
                 show_main_window(app_handle);
+                let state = app_handle.state::<AppState>();
+                let _ = show_active_windows_service_host(app_handle, &state);
             }
         });
 }

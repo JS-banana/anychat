@@ -1,8 +1,8 @@
 import { Globe, RefreshCw, ExternalLink } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useAppStore } from '@/stores/app-store';
 import { Button } from '@/components/ui/button';
+import { refreshServiceContent } from '@/services/content-host';
 
 export function WebViewContainer() {
   const { services, activeServiceId } = useAppStore();
@@ -11,7 +11,7 @@ export function WebViewContainer() {
 
   const handleRefresh = async () => {
     if (activeService) {
-      await invoke('refresh_webview', { label: activeService.id });
+      await refreshServiceContent(activeService, services);
     }
   };
 

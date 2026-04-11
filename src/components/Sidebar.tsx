@@ -1,8 +1,8 @@
 import { Settings, MessageSquare } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '@/stores/app-store';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { SIDEBAR_WIDTH } from '@/lib/layout';
 import { cn } from '@/lib/utils';
 import { useCachedIcon } from '@/hooks/useCachedIcon';
 
@@ -21,7 +21,11 @@ function ServiceIcon({
   serviceName,
   onResolvedIcon,
 }: ServiceIconProps) {
-  const { iconSrc: currentIcon, onError, onLoad } = useCachedIcon(serviceId, serviceUrl, iconUrl, {
+  const {
+    iconSrc: currentIcon,
+    onError,
+    onLoad,
+  } = useCachedIcon(serviceId, serviceUrl, iconUrl, {
     onResolvedCandidate: onResolvedIcon,
   });
 
@@ -51,7 +55,8 @@ export function Sidebar() {
   return (
     <TooltipProvider delayDuration={300}>
       <div
-        className="flex h-full w-16 flex-col items-center border-r border-sidebar-border bg-sidebar py-3"
+        className="flex h-full flex-col items-center border-r border-sidebar-border bg-sidebar py-3"
+        style={{ width: SIDEBAR_WIDTH }}
         onContextMenu={(event) => event.preventDefault()}
       >
         <div className="flex flex-1 flex-col items-center gap-2">
@@ -62,10 +67,9 @@ export function Sidebar() {
               <Tooltip key={service.id}>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={async () => {
+                    onClick={() => {
                       setActiveService(service.id);
                       setSettingsPageOpen(false);
-                      await invoke('switch_webview', { label: service.id, url: service.url });
                     }}
                     className={cn(
                       'relative flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200 hover:scale-105 active:scale-95',
