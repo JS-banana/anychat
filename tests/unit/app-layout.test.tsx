@@ -1,17 +1,38 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import { AppLayout } from '@/components/AppLayout';
 
-const { mockInvoke } = vi.hoisted(() => ({
-  mockInvoke: vi.fn(() => Promise.resolve()),
+const {
+  mockActivateServiceContent,
+  mockHideAllServiceContent,
+  mockSyncServiceHostState,
+  mockUsesDockedWindowContentHost,
+} = vi.hoisted(() => ({
+  mockActivateServiceContent: vi.fn(() => Promise.resolve()),
+  mockHideAllServiceContent: vi.fn(() => Promise.resolve()),
+  mockSyncServiceHostState: vi.fn(() => Promise.resolve()),
+  mockUsesDockedWindowContentHost: vi.fn(() => Promise.resolve(false)),
 }));
 
 vi.mock('@/hooks/useKeyboardShortcuts', () => ({
   useKeyboardShortcuts: () => undefined,
 }));
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: mockInvoke,
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => ({
+    onResized: vi.fn(() => Promise.resolve(() => undefined)),
+    onMoved: vi.fn(() => Promise.resolve(() => undefined)),
+    onScaleChanged: vi.fn(() => Promise.resolve(() => undefined)),
+    onFocusChanged: vi.fn(() => Promise.resolve(() => undefined)),
+  }),
+}));
+
+vi.mock('@/services/content-host', () => ({
+  activateServiceContent: mockActivateServiceContent,
+  hideAllServiceContent: mockHideAllServiceContent,
+  syncServiceHostState: mockSyncServiceHostState,
+  syncDockedContentLayout: vi.fn(() => Promise.resolve()),
+  usesDockedWindowContentHost: mockUsesDockedWindowContentHost,
 }));
 
 type StoreState = {
@@ -19,7 +40,7 @@ type StoreState = {
   settingsPageOpen: boolean;
   settingsActiveTab: 'services' | 'about';
   addServiceDialogOpen: boolean;
-  services: Array<{ id: string; url: string }>;
+  services: Array<{ id: string; name: string; url: string; enabled: boolean }>;
 };
 
 let storeState: StoreState = {
@@ -53,6 +74,7 @@ vi.mock('@/components/SettingsPage', () => ({
 describe('AppLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUsesDockedWindowContentHost.mockResolvedValue(false);
     storeState = {
       activeServiceId: null,
       settingsPageOpen: false,
@@ -62,21 +84,25 @@ describe('AppLayout', () => {
     };
   });
 
-  it('renders webview content when settings page is closed', () => {
-    render(<AppLayout />);
+  it('renders webview content when settings page is closed', async () => {
+    await act(async () => {
+      render(<AppLayout />);
+    });
 
     expect(screen.getByTestId('webview')).toBeInTheDocument();
     expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
   });
 
-  it('renders settings page when settings page is open', () => {
+  it('renders settings page when settings page is open', async () => {
     storeState = {
       ...storeState,
       settingsPageOpen: true,
       settingsActiveTab: 'about',
     };
 
-    render(<AppLayout />);
+    await act(async () => {
+      render(<AppLayout />);
+    });
 
     expect(screen.getByTestId('settings')).toBeInTheDocument();
     expect(screen.queryByTestId('webview')).not.toBeInTheDocument();
@@ -86,16 +112,18 @@ describe('AppLayout', () => {
     storeState = {
       ...storeState,
       activeServiceId: 'chatgpt',
-      services: [{ id: 'chatgpt', url: 'https://chatgpt.com' }],
+      services: [
+        { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com', enabled: true },
+      ],
     };
 
     render(<AppLayout />);
 
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('switch_webview', {
-        label: 'chatgpt',
-        url: 'https://chatgpt.com',
-      });
+      expect(mockActivateServiceContent).toHaveBeenCalledWith(
+        { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com', enabled: true },
+        [{ id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com', enabled: true }]
+      );
     });
   });
 
@@ -104,13 +132,38 @@ describe('AppLayout', () => {
       ...storeState,
       settingsPageOpen: true,
       activeServiceId: 'chatgpt',
-      services: [{ id: 'chatgpt', url: 'https://chatgpt.com' }],
+      services: [
+        { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com', enabled: true },
+      ],
     };
 
     render(<AppLayout />);
 
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('hide_all_webviews');
+      expect(mockHideAllServiceContent).toHaveBeenCalled();
+    });
+  });
+
+  it('syncs Rust host state when the Windows docked host is active and no service remains selected', async () => {
+    mockUsesDockedWindowContentHost.mockResolvedValue(true);
+    storeState = {
+      ...storeState,
+      services: [
+        { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com', enabled: false },
+        { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com', enabled: false },
+      ],
+    };
+
+    render(<AppLayout />);
+
+    await waitFor(() => {
+      expect(mockSyncServiceHostState).toHaveBeenCalledWith(
+        [
+          { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com', enabled: false },
+          { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com', enabled: false },
+        ],
+        null
+      );
     });
   });
 });

@@ -1,5 +1,4 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { invoke } from '@tauri-apps/api/core';
 import { vi } from 'vitest';
 import { Sidebar } from '@/components/Sidebar';
 
@@ -79,6 +78,5 @@ describe('Sidebar', () => {
 
     expect(storeState.setActiveService).toHaveBeenCalledWith('chatgpt');
     expect(storeState.setSettingsPageOpen).toHaveBeenCalledWith(false);
-    expect(invoke).not.toHaveBeenCalled();
   });
 });

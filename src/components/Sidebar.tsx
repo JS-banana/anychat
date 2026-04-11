@@ -2,6 +2,7 @@ import { Settings, MessageSquare } from 'lucide-react';
 import { useAppStore } from '@/stores/app-store';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { SIDEBAR_WIDTH } from '@/lib/layout';
 import { cn } from '@/lib/utils';
 import { useCachedIcon } from '@/hooks/useCachedIcon';
 
@@ -54,7 +55,8 @@ export function Sidebar() {
   return (
     <TooltipProvider delayDuration={300}>
       <div
-        className="flex h-full w-16 flex-col items-center border-r border-sidebar-border bg-sidebar py-3"
+        className="flex h-full flex-col items-center border-r border-sidebar-border bg-sidebar py-3"
+        style={{ width: SIDEBAR_WIDTH }}
         onContextMenu={(event) => event.preventDefault()}
       >
         <div className="flex flex-1 flex-col items-center gap-2">
