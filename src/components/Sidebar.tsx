@@ -1,5 +1,4 @@
 import { Settings, MessageSquare } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '@/stores/app-store';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -62,10 +61,9 @@ export function Sidebar() {
               <Tooltip key={service.id}>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={async () => {
+                    onClick={() => {
                       setActiveService(service.id);
                       setSettingsPageOpen(false);
-                      await invoke('switch_webview', { label: service.id, url: service.url });
                     }}
                     className={cn(
                       'relative flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200 hover:scale-105 active:scale-95',
