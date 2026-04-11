@@ -20,7 +20,11 @@ function ServiceIcon({
   serviceName,
   onResolvedIcon,
 }: ServiceIconProps) {
-  const { iconSrc: currentIcon, onError, onLoad } = useCachedIcon(serviceId, serviceUrl, iconUrl, {
+  const {
+    iconSrc: currentIcon,
+    onError,
+    onLoad,
+  } = useCachedIcon(serviceId, serviceUrl, iconUrl, {
     onResolvedCandidate: onResolvedIcon,
   });
 
