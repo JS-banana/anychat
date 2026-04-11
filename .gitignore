@@ -28,3 +28,4 @@ docs
 *.njsproj
 *.sln
 *.sw?
+.omx/
