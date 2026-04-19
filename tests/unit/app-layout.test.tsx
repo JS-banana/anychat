@@ -166,4 +166,29 @@ describe('AppLayout', () => {
       );
     });
   });
+
+  it('suppresses the Windows docked host while the settings page is open', async () => {
+    mockUsesDockedWindowContentHost.mockResolvedValue(true);
+    storeState = {
+      ...storeState,
+      settingsPageOpen: true,
+      activeServiceId: 'chatgpt',
+      services: [
+        { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com', enabled: true },
+        { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com', enabled: true },
+      ],
+    };
+
+    render(<AppLayout />);
+
+    await waitFor(() => {
+      expect(mockSyncServiceHostState).toHaveBeenCalledWith(
+        [
+          { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com', enabled: true },
+          { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com', enabled: true },
+        ],
+        null
+      );
+    });
+  });
 });

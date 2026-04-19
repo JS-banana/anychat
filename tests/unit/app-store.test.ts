@@ -213,5 +213,6 @@ describe('AppStore', () => {
       const claudeService = useAppStore.getState().services.find((service) => service.id === 'claude');
       expect(claudeService?.iconUrl).toBe('https://claude.ai/favicon.ico');
     });
+
   });
 });

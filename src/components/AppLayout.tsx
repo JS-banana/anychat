@@ -33,6 +33,7 @@ export function AppLayout() {
     [hostServicesSignature]
   );
   const activeService = hostServices.find((service) => service.id === activeServiceId);
+  const visibleHostServiceId = isAnyDialogOpen ? null : activeService?.id ?? null;
 
   useKeyboardShortcuts();
 
@@ -76,8 +77,8 @@ export function AppLayout() {
       return;
     }
 
-    syncServiceHostState(hostServices, activeService?.id ?? null).catch(console.error);
-  }, [activeService?.id, hostServices, useDockedWindowHost]);
+    syncServiceHostState(hostServices, visibleHostServiceId).catch(console.error);
+  }, [hostServices, useDockedWindowHost, visibleHostServiceId]);
 
   useEffect(() => {
     if (useDockedWindowHost === null) {

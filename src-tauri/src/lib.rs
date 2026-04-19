@@ -1,10 +1,11 @@
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
+#[cfg(not(target_os = "windows"))]
+use tauri::webview::WebviewBuilder;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    webview::WebviewBuilder,
     Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_opener::OpenerExt;
@@ -204,6 +205,39 @@ fn is_auth_url(url: &str) -> bool {
     false
 }
 
+fn should_use_custom_user_agent(url: &str) -> bool {
+    let Ok(parsed_url) = tauri::Url::parse(url) else {
+        return true;
+    };
+
+    let host = parsed_url
+        .host_str()
+        .unwrap_or_default()
+        .trim_start_matches("www.")
+        .to_ascii_lowercase();
+
+    host != "grok.com"
+}
+
+fn should_inject_webview_compatibility_script(url: &str) -> bool {
+    let Ok(parsed_url) = tauri::Url::parse(url) else {
+        return true;
+    };
+
+    let host = parsed_url
+        .host_str()
+        .unwrap_or_default()
+        .trim_start_matches("www.")
+        .to_ascii_lowercase();
+
+    !(host == "grok.com"
+        || host.ends_with(".grok.com")
+        || host == "x.com"
+        || host.ends_with(".x.com")
+        || host == "x.ai"
+        || host.ends_with(".x.ai"))
+}
+
 fn service_window_label(service_id: &str) -> String {
     format!("svc_{}", service_id)
 }
@@ -276,13 +310,17 @@ fn open_oauth_popup<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url: &tauri::U
             .as_millis()
     );
 
-    let _ = WebviewWindowBuilder::new(app, &popup_label, WebviewUrl::External(url.clone()))
+    let mut builder = WebviewWindowBuilder::new(app, &popup_label, WebviewUrl::External(url.clone()))
         .title("Sign In")
         .inner_size(500.0, 700.0)
         .center()
-        .user_agent(USER_AGENT)
-        .initialization_script(WEBVIEW_COMPAT_SCRIPT)
-        .build();
+        .user_agent(USER_AGENT);
+
+    if should_inject_webview_compatibility_script(url.as_str()) {
+        builder = builder.initialization_script(WEBVIEW_COMPAT_SCRIPT);
+    }
+
+    let _ = builder.build();
 }
 
 fn sync_windows_service_host_record(
@@ -462,16 +500,15 @@ fn ensure_windows_service_host(
     }
 
     let app_handle_clone = app.clone();
-    let builder =
+    let mut builder =
         WebviewWindowBuilder::new(app, &host.window_label, WebviewUrl::External(parsed_url))
             .title(&service.name)
             .inner_size(900.0, 700.0)
             .visible(false)
             .resizable(false)
             .decorations(false)
+            .shadow(false)
             .skip_taskbar(true)
-            .user_agent(USER_AGENT)
-            .initialization_script(WEBVIEW_COMPAT_SCRIPT)
             .on_navigation(|url| {
                 let url_str = url.as_str();
                 if is_auth_url(url_str) {
@@ -489,9 +526,17 @@ fn ensure_windows_service_host(
                 }
 
                 handle_external_new_window(&app_handle_clone, &url)
-            })
-            .parent(main_window)
-            .map_err(|e| e.to_string())?;
+            });
+
+    if should_use_custom_user_agent(&service.url) {
+        builder = builder.user_agent(USER_AGENT);
+    }
+
+    if should_inject_webview_compatibility_script(&service.url) {
+        builder = builder.initialization_script(WEBVIEW_COMPAT_SCRIPT);
+    }
+
+    let builder = builder.parent(main_window).map_err(|e| e.to_string())?;
 
     let window = builder.build().map_err(|e| e.to_string())?;
     sync_windows_service_host_layout_with_main(app, state, main_window)?;
@@ -580,9 +625,12 @@ fn decide_show_action(is_visible: bool, is_minimized: bool) -> ShowAction {
 mod tests {
     use super::{
         compute_docked_window_bounds_from_metrics, decide_show_action, resolve_windows_refresh_url,
+        should_inject_webview_compatibility_script,
         should_navigate_existing_windows_service_host, should_show_windows_service_hosts,
-        stale_windows_service_ids, ServiceHostPayload, ShowAction, WindowsServiceHost,
+        should_use_custom_user_agent, stale_windows_service_ids, ServiceHostPayload, ShowAction,
+        WindowsServiceHost,
     };
+    use regex::Regex;
     use std::collections::HashMap;
     use tauri::{PhysicalPosition, PhysicalSize};
 
@@ -727,6 +775,89 @@ mod tests {
         assert_eq!(
             resolve_windows_refresh_url(None, &service),
             "https://chatgpt.com".to_string()
+        );
+    }
+
+    #[test]
+    fn grok_uses_default_webview_user_agent() {
+        assert!(!should_use_custom_user_agent("https://grok.com"));
+        assert!(!should_use_custom_user_agent("https://www.grok.com/chat"));
+    }
+
+    #[test]
+    fn non_grok_services_keep_custom_user_agent() {
+        assert!(should_use_custom_user_agent("https://chatgpt.com"));
+        assert!(should_use_custom_user_agent("https://gemini.google.com"));
+        assert!(should_use_custom_user_agent("not-a-valid-url"));
+    }
+
+    #[test]
+    fn x_ecosystem_skips_webview_compatibility_script() {
+        assert!(!should_inject_webview_compatibility_script("https://grok.com"));
+        assert!(!should_inject_webview_compatibility_script("https://x.com/i/grok"));
+        assert!(!should_inject_webview_compatibility_script("https://accounts.x.ai/account"));
+    }
+
+    #[test]
+    fn other_services_keep_webview_compatibility_script() {
+        assert!(should_inject_webview_compatibility_script("https://chatgpt.com"));
+        assert!(should_inject_webview_compatibility_script("https://gemini.google.com"));
+        assert!(should_inject_webview_compatibility_script("not-a-valid-url"));
+    }
+
+    #[test]
+    fn windows_service_host_builder_applies_custom_user_agent_conditionally() {
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"));
+        let conditional_pattern = Regex::new(
+            r#"(?s)let mut builder\s*=\s*WebviewWindowBuilder::new\(app,\s*&host\.window_label,\s*WebviewUrl::External\(parsed_url\)\).*?if should_use_custom_user_agent\(&service\.url\)\s*\{\s*builder = builder\.user_agent\(USER_AGENT\);\s*\}"#,
+        )
+        .unwrap();
+
+        assert!(
+            conditional_pattern.is_match(source),
+            "Windows service host builder should only apply the custom user agent for sites that opt in"
+        );
+    }
+
+    #[test]
+    fn windows_service_host_builder_applies_compatibility_script_conditionally() {
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"));
+        let conditional_pattern = Regex::new(
+            r#"(?s)let mut builder\s*=\s*WebviewWindowBuilder::new\(app,\s*&host\.window_label,\s*WebviewUrl::External\(parsed_url\)\).*?if should_inject_webview_compatibility_script\(&service\.url\)\s*\{\s*builder = builder\.initialization_script\(WEBVIEW_COMPAT_SCRIPT\);\s*\}"#,
+        )
+        .unwrap();
+
+        assert!(
+            conditional_pattern.is_match(source),
+            "Windows service host builder should only inject the compatibility script for sites that opt in"
+        );
+    }
+
+    #[test]
+    fn windows_service_host_builder_disables_shadow() {
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"));
+        let builder_pattern = Regex::new(
+            r#"(?s)let mut builder\s*=\s*WebviewWindowBuilder::new\(app,\s*&host\.window_label,\s*WebviewUrl::External\(parsed_url\)\).*?\.decorations\(false\).*?\.shadow\(false\)"#,
+        )
+        .unwrap();
+
+        assert!(
+            builder_pattern.is_match(source),
+            "Windows service host windows should explicitly disable shadow to avoid white border/overlay artifacts"
+        );
+    }
+
+    #[test]
+    fn windows_close_requests_exit_instead_of_hiding_to_tray() {
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"));
+        let close_request_pattern = Regex::new(
+            r#"(?s)WindowEvent::CloseRequested\s*\{[^}]*\}\s*=>\s*\{.*?#\[cfg\(target_os = "windows"\)\].*?app_handle\.exit\(0\);.*?#\[cfg\(not\(target_os = "windows"\)\)\].*?api\.prevent_close\(\);"#,
+        )
+        .unwrap();
+
+        assert!(
+            close_request_pattern.is_match(source),
+            "main window close handling should exit on Windows and only preserve hide-to-tray behavior on non-Windows"
         );
     }
 }
@@ -893,6 +1024,7 @@ fn show_main_window(app_handle: &tauri::AppHandle) {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn create_webview_for_service(
     app: &tauri::AppHandle,
     label: &str,
@@ -911,9 +1043,8 @@ fn create_webview_for_service(
     let app_handle_clone = app.clone();
     let parsed_url: tauri::Url = url.parse().map_err(|e| format!("{}", e))?;
 
-    let webview_builder = WebviewBuilder::new(label, WebviewUrl::External(parsed_url))
+    let mut webview_builder = WebviewBuilder::new(label, WebviewUrl::External(parsed_url))
         .user_agent(USER_AGENT)
-        .initialization_script(WEBVIEW_COMPAT_SCRIPT)
         .on_navigation(|url| {
             let url_str = url.as_str();
             if is_auth_url(url_str) {
@@ -934,6 +1065,10 @@ fn create_webview_for_service(
 
             handle_external_new_window(&app_handle_clone, &url)
         });
+
+    if should_inject_webview_compatibility_script(url) {
+        webview_builder = webview_builder.initialization_script(WEBVIEW_COMPAT_SCRIPT);
+    }
 
     println!("[AnyChat] create_webview_for_service: calling add_child");
 
@@ -962,6 +1097,7 @@ fn create_webview_for_service(
     Ok(())
 }
 
+#[cfg(not(target_os = "windows"))]
 fn activate_child_webview_content(
     // Use Window instead of WebviewWindow to avoid IPC failure in multi-webview windows.
     parent: &tauri::Window,
@@ -1278,8 +1414,6 @@ pub fn run() {
                     }
                 };
 
-            let window = main_webview_window.as_ref().window();
-
             let state = app.state::<AppState>();
             #[cfg(debug_assertions)]
             if should_open_devtools() {
@@ -1289,6 +1423,7 @@ pub fn run() {
 
             #[cfg(not(target_os = "windows"))]
             {
+                let window = main_webview_window.as_ref().window();
                 let (pos, size) = compute_webview_bounds(&window)?;
 
                 let default_services = [
@@ -1299,10 +1434,9 @@ pub fn run() {
                 for (index, (label, url)) in default_services.iter().enumerate() {
                     let app_handle_clone = app.handle().clone();
 
-                    let webview_builder =
+                    let mut webview_builder =
                         WebviewBuilder::new(*label, WebviewUrl::External(url.parse().unwrap()))
                             .user_agent(USER_AGENT)
-                            .initialization_script(WEBVIEW_COMPAT_SCRIPT)
                             .on_navigation(|url| {
                                 let url_str = url.as_str();
                                 if is_auth_url(url_str) {
@@ -1321,6 +1455,11 @@ pub fn run() {
 
                                 handle_external_new_window(&app_handle_clone, &url)
                             });
+
+                    if should_inject_webview_compatibility_script(url) {
+                        webview_builder =
+                            webview_builder.initialization_script(WEBVIEW_COMPAT_SCRIPT);
+                    }
 
                     let webview = window
                         .add_child(webview_builder, pos, size)
@@ -1349,6 +1488,7 @@ pub fn run() {
 
             #[cfg(not(target_os = "windows"))]
             {
+                let window = main_webview_window.as_ref().window();
                 let app_handle = app.handle().clone();
                 window.on_window_event(move |event| {
                     if let WindowEvent::Resized(size) = event {
@@ -1430,12 +1570,21 @@ pub fn run() {
             }
 
             match event {
-                WindowEvent::CloseRequested { api, .. } => {
+                WindowEvent::CloseRequested { api: _api, .. } => {
                     let app_handle = window.app_handle();
                     let state = app_handle.state::<AppState>();
                     hide_windows_service_hosts(&app_handle, &state);
-                    let _ = window.hide();
-                    api.prevent_close();
+
+                    #[cfg(target_os = "windows")]
+                    {
+                        app_handle.exit(0);
+                    }
+
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        let _ = window.hide();
+                        _api.prevent_close();
+                    }
                 }
                 #[cfg(target_os = "windows")]
                 WindowEvent::Moved(_)
@@ -1459,13 +1608,13 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
+        .run(|_app_handle, _event| {
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { .. } = event {
+            if let tauri::RunEvent::Reopen { .. } = _event {
                 println!("[AnyChat] RunEvent::Reopen");
-                show_main_window(app_handle);
-                let state = app_handle.state::<AppState>();
-                let _ = show_active_windows_service_host(app_handle, &state);
+                show_main_window(_app_handle);
+                let state = _app_handle.state::<AppState>();
+                let _ = show_active_windows_service_host(_app_handle, &state);
             }
         });
 }
