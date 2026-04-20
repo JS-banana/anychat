@@ -2,7 +2,10 @@
 name = "anychat"
 version = "0.1.0"
 description = "Multi-AI Chat Aggregator Desktop App"
-authors = ["you"]
+authors = ["JS-banana <oooooohoney@163.com>"]
+license = "MIT"
+homepage = "https://github.com/JS-banana/anychat"
+repository = "https://github.com/JS-banana/anychat"
 edition = "2021"
 
 [lib]
