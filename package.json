@@ -2,6 +2,16 @@
   "name": "chat-box-app",
   "private": true,
   "version": "0.2.7",
+  "author": "JS-banana <oooooohoney@163.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/JS-banana/anychat",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JS-banana/anychat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JS-banana/anychat/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
